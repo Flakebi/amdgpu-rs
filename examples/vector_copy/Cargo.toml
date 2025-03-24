@@ -1,0 +1,16 @@
+[package]
+name = "vector_copy"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.86"
+description = "Example for amdgpu, copying a buffer"
+license = "MIT OR Apache-2.0"
+publish = false
+
+[profile.dev]
+lto = true # FIXME should not be needed
+[profile.release]
+lto = true
+
+[lib]
+crate-type = ["cdylib"]
