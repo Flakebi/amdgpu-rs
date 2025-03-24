@@ -1,0 +1,14 @@
+[package]
+name = "amdgpu-device-libs-build"
+version = "0.1.0"
+authors = ["Flakebi <flakebi@t-online.de>"]
+edition = "2024"
+description = "Support library for the amdgpu target, build script utility to link device-libs"
+repository = "https://github.com/Flakebi/amdgpu-rs/tree/main/amdgpu-device-libs-build"
+license = "MIT OR Apache-2.0"
+keywords = ["amdgpu", "gpu"]
+categories = ["development-tools::build-utils", "hardware-support"]
+include = ["/src", "*.bc"]
+
+[dependencies]
+rustflags = "0.1"

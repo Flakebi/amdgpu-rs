@@ -1,0 +1,5 @@
+[build]
+target = "amdgcn-amd-amdhsa"
+
+[unstable]
+build-std = ["core", "alloc"]
