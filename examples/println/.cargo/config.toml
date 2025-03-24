@@ -1,0 +1,7 @@
+[build]
+target = "amdgcn-amd-amdhsa"
+# Enable linker-plugin-lto and workarounds
+rustflags = ["-Clinker-plugin-lto", "-Zemit-thin-lto=no"]
+
+[unstable]
+build-std = ["core", "alloc"]

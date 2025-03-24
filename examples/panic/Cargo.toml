@@ -1,0 +1,22 @@
+[package]
+name = "panic"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.86"
+description = "Example using println amdgpu"
+license = "MIT OR Apache-2.0"
+publish = false
+
+[profile.dev]
+lto = true # FIXME should not be needed
+[profile.release]
+lto = true
+
+[lib]
+crate-type = ["cdylib"]
+
+[build-dependencies]
+amdgpu-device-libs-build = { path = "../../amdgpu-device-libs-build" }
+
+[dependencies]
+amdgpu-device-libs = { path = "../../amdgpu-device-libs" }
