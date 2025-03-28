@@ -8,8 +8,9 @@ use alloc::vec::Vec;
 use amdgpu_device_libs::intrinsics;
 use amdgpu_device_libs::prelude::*;
 
+#[allow(clippy::missing_safety_doc)]
 #[unsafe(no_mangle)]
-pub extern "gpu-kernel" fn kernel(input: *const u8, output: *mut u8) {
+pub unsafe extern "gpu-kernel" fn kernel(input: *const u8, output: *mut u8) {
     // Get workgroup and thread id
     let wg_id = workgroup_id_x();
     let id = workitem_id_x();

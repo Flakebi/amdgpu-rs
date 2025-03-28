@@ -25,7 +25,9 @@ struct Cli {
 }
 
 fn get_str(s: &[i8]) -> &str {
-    let cs = std::ffi::CStr::from_bytes_until_nul(unsafe { std::mem::transmute(s) }).unwrap();
+    let cs =
+        std::ffi::CStr::from_bytes_until_nul(unsafe { std::mem::transmute::<&[i8], &[u8]>(s) })
+            .unwrap();
     cs.to_str().unwrap()
 }
 
