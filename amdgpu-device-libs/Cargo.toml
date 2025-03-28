@@ -8,7 +8,12 @@ description = "Support library for the amdgpu target, linking to device-libs"
 repository = "https://github.com/Flakebi/amdgpu-rs/tree/main/amdgpu-device-libs"
 license = "MIT OR Apache-2.0"
 keywords = ["amdgpu", "gpu"]
-categories = ["api-bindings", "external-ffi-bindings", "hardware-support", "no-std::no-alloc"]
+categories = [
+  "api-bindings",
+  "external-ffi-bindings",
+  "hardware-support",
+  "no-std::no-alloc",
+]
 
 [package.metadata.docs.rs]
 rustc-args = ["-Ctarget-cpu=gfx900"]

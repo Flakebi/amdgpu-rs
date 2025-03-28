@@ -25,7 +25,9 @@ struct Cli {
 }
 
 fn get_str(s: &[i8]) -> &str {
-    let cs = std::ffi::CStr::from_bytes_until_nul(unsafe { std::mem::transmute(s) }).unwrap();
+    let cs =
+        std::ffi::CStr::from_bytes_until_nul(unsafe { std::mem::transmute::<&[i8], &[u8]>(s) })
+            .unwrap();
     cs.to_str().unwrap()
 }
 
@@ -94,8 +96,8 @@ fn main() -> std::process::ExitCode {
     let mut a: Vec<u8> = vec![0; LEN];
     let mut b: Vec<u8> = vec![0; LEN];
 
-    for i in 0..LEN {
-        a[i] = i as u8;
+    for (i, elem) in a.iter_mut().enumerate() {
+        *elem = i as u8;
     }
 
     unsafe {
@@ -140,10 +142,10 @@ fn main() -> std::process::ExitCode {
 
         // Assemble arguments for the kernel.
         // Pass two pointers, ad and bd
-        let kernel_args: &mut [*mut std::ffi::c_void] =
-            &mut [ad as *mut std::ffi::c_void, bd as *mut std::ffi::c_void];
+        let kernel_args: &mut [*mut std::ffi::c_void] = &mut [ad, bd];
         let mut size = std::mem::size_of_val(kernel_args);
 
+        #[allow(clippy::manual_dangling_ptr)]
         let mut config = [
             0x1 as *mut std::ffi::c_void,                   // Next come arguments
             kernel_args as *mut _ as *mut std::ffi::c_void, // Pointer to arguments

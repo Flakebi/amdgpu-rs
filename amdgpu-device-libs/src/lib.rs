@@ -254,7 +254,6 @@ pub struct HsaKernelDispatchPacket {
 #[cfg(feature = "panic_handler")]
 #[cfg_attr(not(feature = "print"), allow(unused_variables))]
 #[panic_handler]
-#[inline]
 fn panic(panic_info: &core::panic::PanicInfo) -> ! {
     #[cfg(feature = "print")]
     {
@@ -386,7 +385,6 @@ pub unsafe fn call_host_function(
 // Define here, otherwise we may get undefined symbols.
 // TODO implement in LLVM?
 #[unsafe(no_mangle)]
-#[inline]
 extern "C" fn memcmp(s1: *const u8, s2: *const u8, n: usize) -> i32 {
     for i in 0..n {
         let diff = unsafe { i32::from(s1.add(i).read()) - i32::from(s2.add(i).read()) };

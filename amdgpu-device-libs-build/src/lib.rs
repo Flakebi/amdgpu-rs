@@ -55,14 +55,14 @@ pub fn build() {
         if let Flag::Codegen { opt, value } = flag {
             if opt == "target-cpu" {
                 target_cpu = value;
-            } else if opt == "target-feature" {
-                if let Some(feat) = value {
-                    if let Some(feat) = feat.strip_prefix('-') {
-                        target_features.remove(feat);
-                    } else {
-                        let feat = feat.trim_start_matches('+');
-                        target_features.insert(feat.into());
-                    }
+            } else if opt == "target-feature"
+                && let Some(feat) = value
+            {
+                if let Some(feat) = feat.strip_prefix('-') {
+                    target_features.remove(feat);
+                } else {
+                    let feat = feat.trim_start_matches('+');
+                    target_features.insert(feat.into());
                 }
             }
         }

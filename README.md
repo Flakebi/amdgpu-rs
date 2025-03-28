@@ -109,6 +109,11 @@ To compile examples, set the concrete hardware architecture with `CARGO_BUILD_RU
 
 See [`examples`](./examples).
 
+## Tests
+
+All examples can be run with `nix run .#runExamples`.
+To specify a non-default device, e.g. 1, use `nix run .#runExamples -- -d 1`.
+
 ## License
 
 Licensed under either of

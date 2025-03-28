@@ -25,7 +25,9 @@ struct Cli {
 }
 
 fn get_str(s: &[i8]) -> &str {
-    let cs = std::ffi::CStr::from_bytes_until_nul(unsafe { std::mem::transmute(s) }).unwrap();
+    let cs =
+        std::ffi::CStr::from_bytes_until_nul(unsafe { std::mem::transmute::<&[i8], &[u8]>(s) })
+            .unwrap();
     cs.to_str().unwrap()
 }
 
@@ -114,6 +116,7 @@ fn main() {
         let mut size = std::mem::size_of_val(kernel_args);
         println!("host_func has address {:?}", host_func as *const ());
 
+        #[allow(clippy::manual_dangling_ptr)]
         let mut config = [
             0x1 as *mut std::ffi::c_void,                   // Next come arguments
             kernel_args as *mut _ as *mut std::ffi::c_void, // Pointer to arguments
