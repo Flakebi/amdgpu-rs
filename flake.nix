@@ -2,9 +2,7 @@
   description = "Examples and support libraries for the amdgpu Rust target";
 
   inputs = {
-    # Use upstream when https://github.com/ipetkov/crane/pull/889 is merged
-    #crane.url = "github:ipetkov/crane";
-    crane.url = "github:Flakebi/crane/amdgpu";
+    crane.url = "github:ipetkov/crane";
     fenix.url = "github:nix-community/fenix";
     flake-utils.url = "github:numtide/flake-utils";
     nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
@@ -137,6 +135,7 @@
       {
         packages = packages // {
           inherit runExamples;
+          inherit native-toolchain;
         };
 
         apps = {

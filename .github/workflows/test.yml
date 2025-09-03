@@ -15,5 +15,5 @@ jobs:
     - uses: cachix/cachix-action@v16
       with:
         name: amdgpu-rs
-        authToken: ${{ github.ref == 'refs/heads/master' && secrets.CACHIX_AUTH_TOKEN || '' }}
+        authToken: ${{ github.ref == 'refs/heads/main' && secrets.CACHIX_AUTH_TOKEN || '' }}
     - run: nix flake check -L

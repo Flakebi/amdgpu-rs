@@ -49,9 +49,11 @@
 //! # .cargo/config.toml
 //! [build]
 //! target = "amdgcn-amd-amdhsa"
-//! # Enable linker-plugin-lto and workarounds
+//! # Enable linker-plugin-lto
 //! # Either add -Ctarget-cpu=gfx<version> here or specify it in CARGO_BUILD_RUSTFLAGS='-Ctarget-cpu=gfx<version>'
-//! rustflags = ["-Clinker-plugin-lto", "-Zemit-thin-lto=no"]
+//! # Note that setting RUSTFLAGS overwrites the flags added here!
+//! # In old Rust versions (before #136840), linker-plugin-lto is not working as expected and -Zemit-thin-lto=no needs to be added to rustflags
+//! rustflags = ["-Clinker-plugin-lto"]
 //!
 //! [unstable]
 //! build-std = ["core", "alloc"]
