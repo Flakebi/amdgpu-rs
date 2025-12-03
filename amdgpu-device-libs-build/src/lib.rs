@@ -40,7 +40,6 @@ pub fn build() {
     let device_libs = format!("{}/amdgcn/bitcode", rocm_device_lib_path);
     println!("cargo::rerun-if-env-changed=ROCM_PATH");
     println!("cargo::rerun-if-env-changed=ROCM_DEVICE_LIB_PATH");
-    println!("cargo::rustc-link-arg={}/ockl.bc", device_libs);
 
     // Find out target cpu and enabled features
     let mut target_features = std::env::var("CARGO_CFG_TARGET_FEATURE")
@@ -78,7 +77,7 @@ pub fn build() {
         device_libs, gfxip,
     );
     println!(
-        "cargo::rustc-link-arg={}/oclc_abi_version_500.bc",
+        "cargo::rustc-link-arg={}/oclc_abi_version_600.bc",
         device_libs,
     );
 
