@@ -24,12 +24,7 @@ It looks for `amdgcn/bitcode/*.bc` files in this path.
 Create a new cargo library project and change it to compile a cdylib:
 ```toml
 # Cargo.toml
-# Force lto
-[profile.dev]
-lto = true
-[profile.release]
-lto = true
-
+# In old Rust versions (before #149624), lto needed to be forced with `[profile.dev] lto = true` and  `[profile.release] lto = true`
 [lib]
 # Compile a cdylib
 crate-type = ["cdylib"]

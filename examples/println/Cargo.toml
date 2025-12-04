@@ -7,11 +7,6 @@ description = "Example using println amdgpu"
 license = "MIT OR Apache-2.0"
 publish = false
 
-[profile.dev]
-lto = true # FIXME should not be needed
-[profile.release]
-lto = true
-
 [lib]
 crate-type = ["cdylib"]
 
