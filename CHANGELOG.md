@@ -6,6 +6,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 ### ℹ Changed
+- `dispatch_ptr` is now available without device-libs
+
 ### ❌ Removed
 - Removed thin-lto=no workaround because it is fixed in Rust
 - Removed lto=true workaround because it is fixed in Rust

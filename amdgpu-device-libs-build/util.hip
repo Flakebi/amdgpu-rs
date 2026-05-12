@@ -14,10 +14,6 @@ extern "C" __device__ void __amdgpu_util_print_stdout(const char *str, int sz) {
     printf("%.*s", sz, str);
 }
 
-extern "C" __device__ void *__amdgpu_util_dispatch_ptr() {
-    return (void *)__builtin_amdgcn_dispatch_ptr();
-}
-
 extern "C" __device__ void *__amdgpu_util_queue_ptr() {
     return (void *)__builtin_amdgcn_queue_ptr();
 }

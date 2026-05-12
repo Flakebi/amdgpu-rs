@@ -142,7 +142,6 @@ pub mod intrinsics;
 ///
 /// Contains `print!`, `println!`, intrinsics to get workitem and workgroup id among others.
 pub mod prelude {
-    #[cfg(feature = "device_libs")]
     pub use crate::dispatch_ptr;
     pub use crate::intrinsics::{
         s_barrier, workgroup_id_x, workgroup_id_y, workgroup_id_z, workitem_id_x, workitem_id_y,
@@ -175,7 +174,6 @@ unsafe extern "C" {
     fn __amdgpu_util_print_stdout(s: *const ffi::c_char, size: ffi::c_int);
 
     // Intrinsics that return special addrspaces and therefore cannot be pure rust at the moment
-    safe fn __amdgpu_util_dispatch_ptr() -> *const ffi::c_void;
     safe fn __amdgpu_util_queue_ptr() -> *mut ffi::c_void;
     safe fn __amdgpu_util_kernarg_segment_ptr() -> *const ffi::c_void;
     safe fn __amdgpu_util_implicitarg_ptr() -> *const ffi::c_void;
@@ -193,7 +191,6 @@ pub struct HsaSignal {
 /// HSA packet to dispatch a kernel.
 ///
 /// A pointer to the packet that was used to dispatch the currently running kernel can be obtained with [`dispatch_ptr`].
-#[cfg(feature = "device_libs")]
 #[derive(Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
 #[repr(C)]
 pub struct HsaKernelDispatchPacket {
@@ -329,10 +326,9 @@ pub fn print(s: &str) {
 /// println!("Workgroup size {}x{}x{}", dispatch.workgroup_size_x, dispatch.workgroup_size_y, dispatch.workgroup_size_z);
 /// # }
 /// ```
-#[cfg(feature = "device_libs")]
 #[inline]
 pub fn dispatch_ptr() -> &'static HsaKernelDispatchPacket {
-    unsafe { &*(__amdgpu_util_dispatch_ptr() as *const HsaKernelDispatchPacket) }
+    unsafe { core::mem::transmute(core::intrinsics::gpu::amdgpu_dispatch_ptr()) }
 }
 
 /// Call a function on the host.

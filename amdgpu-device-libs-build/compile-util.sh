@@ -1,17 +1,17 @@
 #!/usr/bin/env bash
-set -euo pipefail
+set -euxo pipefail
 
 function prepare_ll() {
   # Remove unnecessary stuff
   sd '"target-cpu".* }' ' }' "$1"
-  sd '@(0|__const.__assert_fail).*' '' "$1"
-  sd 'declare .* @llvm.*\n' '' "$1"
+  sd '@(0|__const.__assert_fail|__hip_cuid|kinfo|llvm.compiler.used).*' '' "$1"
+  sd 'declare .* @llvm.*$' '' "$1"
   sd '; Function Attrs: .*' '' "$1"
-  sd -f ms 'define internal ([^@]* @__ockl_dm_(de)?alloc[^{]*?) \{.*?\n\}' 'declare $1' "$1"
+  sd -A -f ms 'define internal ([^@]* @__ockl_dm_(de)?alloc[^{]*?) \{.*?\n\}' 'declare $1' "$1"
   sd 'define ([^@]* @__amdgpu_util)' 'define linkonce_odr $1' "$1"
 
   # Remove functions except __util_*
-  sd -f ms 'define [^@]* @([^_fm]|_[^_]|__[^a]|__a[^m]).*?\n\}' '' "$1"
+  sd -A -f ms 'define [^@]* @([^_fm]|_[^_]|__[^a]|__a[^m]).*?\n\}' '' "$1"
   sd '\n\n+\n' '\n\n' "$1"
   # Check that no other functions are defined
   rg 'define' "$1" | not rg -v '__amdgpu_util|free|malloc'
