@@ -96,14 +96,17 @@
 //! ```
 #![deny(missing_docs)]
 #![allow(internal_features)]
-#![feature(core_intrinsics, link_llvm_intrinsics)]
+#![feature(core_intrinsics, gpu_intrinsics, stdarch_amdgpu)]
 #![no_std]
 
+/// Re-exported for use in print macros
 #[cfg(feature = "alloc")]
-extern crate alloc;
+#[doc(hidden)]
+pub extern crate alloc;
 
 #[cfg(feature = "alloc")]
 use core::alloc::{GlobalAlloc, Layout};
+use core::arch::amdgpu;
 use core::ffi;
 
 /// Prints to the standard output.
@@ -113,7 +116,7 @@ use core::ffi;
 #[macro_export]
 macro_rules! print {
     ($($arg:tt)*) => {
-        $crate::print(::alloc::format!($($arg)*));
+        $crate::print($crate::alloc::format!($($arg)*));
     };
 }
 
@@ -124,13 +127,56 @@ macro_rules! print {
 #[macro_export]
 macro_rules! println {
     ($($arg:tt)*) => {
-        let mut s = ::alloc::format!($($arg)*);
+        let mut s = $crate::alloc::format!($($arg)*);
         s.push('\n');
         $crate::print(&s);
     };
 }
 
-pub mod intrinsics;
+/// Re-exports
+mod intrinsics {
+    use core::arch::amdgpu;
+
+    /// Synchronize all wavefronts in a workgroup.
+    ///
+    /// Each wavefronts in a workgroup waits at the barrier until all wavefronts in the workgroup
+    /// arrive at a barrier.
+    ///
+    /// This intrinsic does not behave like a normal function call; it is a “convergent” operation
+    /// and as such has non-standard control-flow effects which need special treatment by the
+    /// language. Rust currently does not properly support convergent operations. This operation is
+    /// hence provided on a best-effort basis. Using it may result in incorrect code under some
+    /// circumstances.
+    pub fn s_barrier() {
+        amdgpu::s_barrier();
+    }
+
+    /// Returns the x coordinate of the workgroup index within the dispatch.
+    pub fn workgroup_id_x() -> u32 {
+        amdgpu::workgroup_id_x()
+    }
+    /// Returns the y coordinate of the workgroup index within the dispatch.
+    pub fn workgroup_id_y() -> u32 {
+        amdgpu::workgroup_id_y()
+    }
+    /// Returns the z coordinate of the workgroup index within the dispatch.
+    pub fn workgroup_id_z() -> u32 {
+        amdgpu::workgroup_id_z()
+    }
+
+    /// Returns the x coordinate of the workitem index within the workgroup.
+    pub fn workitem_id_x() -> u32 {
+        amdgpu::workitem_id_x()
+    }
+    /// Returns the y coordinate of the workitem index within the workgroup.
+    pub fn workitem_id_y() -> u32 {
+        amdgpu::workitem_id_y()
+    }
+    /// Returns the z coordinate of the workitem index within the workgroup.
+    pub fn workitem_id_z() -> u32 {
+        amdgpu::workitem_id_z()
+    }
+}
 
 /// Prelude for functions that are generally useful when writing kernels.
 ///
@@ -143,10 +189,7 @@ pub mod intrinsics;
 /// Contains `print!`, `println!`, intrinsics to get workitem and workgroup id among others.
 pub mod prelude {
     pub use crate::dispatch_ptr;
-    pub use crate::intrinsics::{
-        s_barrier, workgroup_id_x, workgroup_id_y, workgroup_id_z, workitem_id_x, workitem_id_y,
-        workitem_id_z,
-    };
+    pub use crate::intrinsics::*;
     #[cfg(feature = "print")]
     pub use print;
     #[cfg(feature = "print")]
@@ -251,16 +294,15 @@ pub struct HsaKernelDispatchPacket {
 fn panic(panic_info: &core::panic::PanicInfo) -> ! {
     #[cfg(feature = "print")]
     {
-        use prelude::*;
         // workgroup x thread y panicked at …
         println!(
             "workgroup {},{},{} thread {},{},{} {panic_info}",
-            workgroup_id_x(),
-            workgroup_id_y(),
-            workgroup_id_z(),
-            workitem_id_x(),
-            workitem_id_y(),
-            workitem_id_z()
+            amdgpu::workgroup_id_x(),
+            amdgpu::workgroup_id_y(),
+            amdgpu::workgroup_id_z(),
+            amdgpu::workitem_id_x(),
+            amdgpu::workitem_id_y(),
+            amdgpu::workitem_id_z()
         );
     }
 
@@ -328,7 +370,11 @@ pub fn print(s: &str) {
 /// ```
 #[inline]
 pub fn dispatch_ptr() -> &'static HsaKernelDispatchPacket {
-    unsafe { core::mem::transmute(core::intrinsics::gpu::amdgpu_dispatch_ptr()) }
+    unsafe {
+        &*core::mem::transmute::<*const (), *const HsaKernelDispatchPacket>(
+            core::intrinsics::gpu::amdgpu_dispatch_ptr(),
+        )
+    }
 }
 
 /// Call a function on the host.

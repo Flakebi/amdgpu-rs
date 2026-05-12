@@ -1,8 +1,6 @@
 #![feature(abi_gpu_kernel)]
 #![no_std]
 
-extern crate alloc;
-
 use amdgpu_device_libs::prelude::*;
 
 #[unsafe(no_mangle)]

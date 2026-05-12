@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `dispatch_ptr` is now available without device-libs
 
 ### ❌ Removed
+- Removed `amdgpu_device_libs::intrinsics`, use `core::arch::amdgpu` for less common intrinsics instead
 - Removed thin-lto=no workaround because it is fixed in Rust
 - Removed lto=true workaround because it is fixed in Rust
 

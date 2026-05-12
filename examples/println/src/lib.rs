@@ -1,11 +1,11 @@
-#![feature(abi_gpu_kernel)]
+#![feature(abi_gpu_kernel, stdarch_amdgpu)]
 #![no_std]
 
 extern crate alloc;
 
 use alloc::vec::Vec;
+use core::arch::amdgpu;
 
-use amdgpu_device_libs::intrinsics;
 use amdgpu_device_libs::prelude::*;
 
 #[allow(clippy::missing_safety_doc)]
@@ -26,9 +26,9 @@ pub unsafe extern "gpu-kernel" fn kernel(input: *const u8, output: *mut u8) {
             dispatch.workgroup_size_x,
             dispatch.workgroup_size_y,
             dispatch.workgroup_size_z,
-            intrinsics::wavefrontsize(),
-            dispatch.group_segment_size,   // Total size of shared memory
-            intrinsics::groupstaticsize()  // Static size of shared memory
+            amdgpu::wavefrontsize(),
+            dispatch.group_segment_size, // Total size of shared memory
+            amdgpu::groupstaticsize()    // Static size of shared memory
         );
     }
 
