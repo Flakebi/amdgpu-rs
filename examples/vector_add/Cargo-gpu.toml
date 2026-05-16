@@ -1,0 +1,17 @@
+[package]
+name = "vector_add"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+crate-type = ["cdylib"]
+
+[features]
+gpu = ["amdgpu-device-libs"]
+
+[build-dependencies]
+amdgpu-device-libs-build = "0.1"
+
+[dependencies]
+gpu-kernel = { path = "../.." }
+amdgpu-device-libs = "0.1"

@@ -1,0 +1,10 @@
+[package]
+name = "vector_add"
+version = "0.1.0"
+edition = "2024"
+
+[features]
+gpu = []
+
+[dependencies]
+gpu-kernel = { path = "../.." }

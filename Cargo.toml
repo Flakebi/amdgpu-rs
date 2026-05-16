@@ -1,0 +1,10 @@
+[package]
+name = "gpu-kernel"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+gpu-kernel-proc-macros = { version = "0.1", path = "gpu-kernel-proc-macros" }
+
+[target.'cfg(not(any(target_arch = "amdgpu", target_arch = "nvptx64")))'.dependencies]
+hip-runtime-sys = "0.1"
