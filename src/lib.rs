@@ -43,6 +43,7 @@ pub struct LaunchConfigBuilder {
 }
 
 #[cfg(not(any(target_arch = "amdgpu", target_arch = "nvptx64")))]
+#[doc(hidden)]
 pub struct Module {
     #[cfg(feature = "amd")]
     module: hip_runtime_sys::hipModule_t,
@@ -53,6 +54,7 @@ unsafe impl Send for Module {}
 unsafe impl Sync for Module {}
 
 #[cfg(not(any(target_arch = "amdgpu", target_arch = "nvptx64")))]
+#[doc(hidden)]
 pub struct Kernel {
     #[cfg(feature = "amd")]
     func: hip_runtime_sys::hipFunction_t,
@@ -94,7 +96,6 @@ impl LaunchConfigBuilder {
 
 #[cfg(not(any(target_arch = "amdgpu", target_arch = "nvptx64")))]
 impl Module {
-    #[doc(hidden)]
     pub fn new(data: &[u8]) -> Self {
         #[cfg(feature = "amd")]
         unsafe {
@@ -108,7 +109,6 @@ impl Module {
         }
     }
 
-    #[doc(hidden)]
     pub fn get_kernel(&self, name: &str) -> Kernel {
         #[cfg(feature = "amd")]
         unsafe {
@@ -131,7 +131,6 @@ impl Module {
 
 #[cfg(not(any(target_arch = "amdgpu", target_arch = "nvptx64")))]
 impl Kernel {
-    #[doc(hidden)]
     pub fn launch<T: 'static>(&self, launch_config: LaunchConfig, mut args: T) {
         #[cfg(feature = "amd")]
         {

@@ -6,10 +6,10 @@ use gpu_kernel::kernel;
 gpu_kernel::kernel_lib!();
 
 #[kernel]
-pub fn test(i: i32) {
+pub fn test(a: &[u32], b: &[u32]) {
     use gpu_kernel::prelude::*;
 
-    println!("Hello World #{i} from the GPU!");
+    println!("Hello World #{} from the GPU!", a[0]);
 }
 
 #[cfg(not(feature = "gpu"))]
@@ -18,28 +18,22 @@ fn main() {
 
     println!("Hello, world!");
 
+    // TODO Implement actual vector-add
+    // TODO Use global hip allocator for shared mem and pass a slice?
+
+    let mut a = Vec::new();
+    let mut b = Vec::new();
+    for i in 0..10 {
+        a.push(i);
+        b.push(i);
+    }
+
     test(
         LaunchConfig::new()
             .threads_per_workgroup([4, 1, 1])
             .workgroups([1, 1, 1])
             .build(),
-        1,
+        &a,
+        &b,
     );
 }
-
-/*fn gpu_with_std_same_crate() {
-    gpu_launch(LaunchConfig::new(…), || println!("hi!"));
-    gpu_launch(LaunchConfig::new(…), || println!("ho!"));
-}
-
-// Implementation
-
-// With mangling
-#[kernel]
-fn launch_kernel<F: FnOnce()>(f: F) {
-    f();
-}
-
-fn gpu_launch<F: FnOnce()>(config: LaunchConfig, f: F) {
-    launch_kernel<F>(config, f);
-}*/

@@ -288,9 +288,9 @@ pub fn kernel_lib_impl(_: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let manifest_path = manifest_path.display().to_string();
     let lock_path = lock_path.display().to_string();
     let output = quote! {
-        // TODO Use proc_macro_tracked_path
         // Changes to Cargo.toml can affect the GPU build.
         // Dummy include to re-run the macro if it changed.
+        // Use proc_macro tracked path and env once it is stable.
         const _: &[u8] = std::include_bytes!(#manifest_path);
         const _: &[u8] = std::include_bytes!(#lock_path);
         const _: std::option::Option<&str> = std::option_env!("CARGO_TARGET_DIR");
