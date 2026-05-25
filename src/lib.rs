@@ -1,10 +1,21 @@
 #![no_std]
 
-pub use gpu_kernel_proc_macros::{kernel, kernel_lib};
+pub use gpu_kernel_proc_macros::{kernel, kernel_lib_impl};
 
 #[cfg(not(any(target_arch = "amdgpu", target_arch = "nvptx64")))]
 #[doc(hidden)]
 pub use hip_runtime_sys;
+
+#[macro_export]
+macro_rules! kernel_lib {
+    () => {
+        #[cfg(not(any(target_arch = "amdgpu", target_arch = "nvptx64")))]
+        ::gpu_kernel::kernel_lib_impl!();
+
+        #[cfg(any(target_arch = "amdgpu", target_arch = "nvptx64"))]
+        extern crate alloc;
+    };
+}
 
 pub struct LaunchConfig {
     pub workgroups: [u32; 3],

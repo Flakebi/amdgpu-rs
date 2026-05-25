@@ -95,7 +95,7 @@ pub fn kernel(
 }
 
 #[proc_macro]
-pub fn kernel_lib(_: proc_macro::TokenStream) -> proc_macro::TokenStream {
+pub fn kernel_lib_impl(_: proc_macro::TokenStream) -> proc_macro::TokenStream {
     // Compile gpu crate here
     // TODO Do nothing when compiling for gpu
     let crate_name = env::var("CARGO_CRATE_NAME").expect("$CARGO_CRATE_NAME must be set");
@@ -160,7 +160,7 @@ amdgpu-device-libs = "0.1"
         // "--offline",
         "--release",
         "-Zbuild-std=core,alloc",
-        "--verbose",
+        // "--verbose",
         "--features",
         "gpu",
     ]);
