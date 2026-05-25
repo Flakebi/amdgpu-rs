@@ -92,9 +92,6 @@ impl Module {
     pub fn new(data: &[u8]) -> Self {
         #[cfg(feature = "amd")]
         unsafe {
-            // TODO Not always 0? Can we just omit this and leave it to the user?
-            let result = hip_runtime_sys::hipSetDevice(0);
-            assert_eq!(result, hip_runtime_sys::hipError_t::hipSuccess);
             let mut module: hip_runtime_sys::hipModule_t = std::ptr::null_mut();
             let result = hip_runtime_sys::hipModuleLoadData(
                 &mut module,
