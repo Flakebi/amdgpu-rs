@@ -3,11 +3,6 @@ name = "vector_add"
 version = "0.1.0"
 edition = "2024"
 
-# TODO Can add in proc-macro?
-[lib]
-crate-type = ["cdylib"]
-path = "src/main.rs"
-
 # This gets defined when building for the gpu.
 # It can be omitted when using target_arch or similar for cfg conditions, it exists for convenience only.
 [features]

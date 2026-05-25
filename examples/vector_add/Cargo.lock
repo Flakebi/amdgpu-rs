@@ -16,15 +16,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "amdgpu-device-libs-build"
-version = "0.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b4606dce6fe7d2bd50e3d2c1af5424fe219c255165330e24433548ca98231dbf"
-dependencies = [
- "rustflags",
-]
-
-[[package]]
 name = "equivalent"
 version = "1.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -43,7 +34,7 @@ dependencies = [
 name = "gpu-kernel-proc-macros"
 version = "0.1.0"
 dependencies = [
- "amdgpu-device-libs-build 0.1.0",
+ "amdgpu-device-libs-build",
  "quote",
  "syn",
  "toml",
@@ -193,7 +184,6 @@ checksum = "e6e4313cd5fcd3dad5cafa179702e2b244f760991f45397d14d4ebf38247da75"
 name = "vector_add"
 version = "0.1.0"
 dependencies = [
- "amdgpu-device-libs-build 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "gpu-kernel",
 ]
 

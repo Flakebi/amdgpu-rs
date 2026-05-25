@@ -1,12 +1,14 @@
 extern crate proc_macro;
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::{env, fs};
 
 use quote::{format_ident, quote};
 use syn::{FnArg, ItemFn, Pat, parse_macro_input};
 use toml::Table;
+use toml::map::Entry;
+use toml::value::Array;
 
 #[proc_macro_attribute]
 pub fn kernel(
@@ -100,6 +102,7 @@ pub fn kernel(
     proc_macro::TokenStream::from(output)
 }
 
+// TODO Split into smaller functions
 #[proc_macro]
 pub fn kernel_lib_impl(_: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let target = {
@@ -108,6 +111,7 @@ pub fn kernel_lib_impl(_: proc_macro::TokenStream) -> proc_macro::TokenStream {
     };
     let target_env = target.replace('-', "_").to_uppercase();
     let target_rustflags = format!("CARGO_TARGET_{target_env}_RUSTFLAGS");
+    let target_cargoflags = format!("CARGO_TARGET_{target_env}_FLAGS");
 
     // Compile gpu crate here
     let crate_name = env::var("CARGO_CRATE_NAME").expect("$CARGO_CRATE_NAME must be set");
@@ -129,7 +133,7 @@ pub fn kernel_lib_impl(_: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let env_rustflags = env::var(&target_rustflags).unwrap_or_default();
     // Custom setting, defaults to --release
     let cargoflags =
-        env::var(&format!("CARGO_TARGET_{target_env}_FLAGS")).unwrap_or_else(|_| "--release".into());
+        env::var(&target_cargoflags).unwrap_or_else(|_| "--release".into());
 
     // Get rustflags from env and .cargo/config.toml
     let cargo_config_path = manifest_dir.join(".cargo").join("config.toml");
@@ -169,20 +173,102 @@ pub fn kernel_lib_impl(_: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let link_args = amdgpu_device_libs_build::get_link_args(is_wave64_enabled, &target_cpu).link_args;
     let new_rustflags = link_args.iter().map(|v| format!("-Clink-arg={v}")).collect::<Vec<_>>();
 
-    // TODO Copy Cargo.toml, insert lib.path = main.rs if lib does not exist, set lib.crate-type = cdylib
-    // TODO Set --features gpu only when it exists in Cargo.toml
+    // Copy Cargo.toml, insert lib.path = main.rs if lib does not exist, set lib.crate-type = cdylib
+    let cargo_toml =
+        fs::read_to_string(&manifest_path).unwrap_or_else(|e| panic!("Failed to read {}: {e}", manifest_path.display()));
+    let mut cargo_toml = cargo_toml
+        .parse::<Table>()
+        .unwrap_or_else(|e| panic!("Failed to parse {}: {e}", manifest_path.display()));
+    let has_gpu_feature = cargo_toml.get("features").map(|v| v.as_table().expect("features needs to be a toml table").contains_key("gpu")).unwrap_or_default();
+    let has_lib = cargo_toml.contains_key("lib") || fs::exists(manifest_dir.join("src").join("lib.rs")).expect("Failed to check for lib.rs");
+    let lib_config = cargo_toml.entry("lib").or_insert_with(|| Table::new().into()).as_table_mut().expect("lib needs to be a toml table");
+
+    // Set or fixup lib path
+    match lib_config.entry("path") {
+        Entry::Vacant(e) => {
+            let path;
+            if has_lib {
+                path = "../../src/lib.rs";
+            } else {
+                path = "../../src/main.rs";
+            }
+            e.insert(path.into());
+        }
+        Entry::Occupied(mut e) => {
+            // Fixup relative path
+            let path = Path::new(e.get().as_str().expect("lib path must be a toml string"));
+            if path.is_relative() {
+                let new = Path::new("../..").join(path).display().to_string();
+                e.insert(new.into());
+            }
+        }
+    }
+
+    let mut a = Array::new();
+    a.push("cdylib".into());
+    lib_config.insert("crate-type".into(), a.into());
+
+    // Fixup all relative dependency paths in the Cargo.toml
+    let fix_dep = |v: &mut toml::Value| {
+        if let Some(v) = v.as_table_mut() {
+            if let Some(p) = v.get_mut("path") {
+                let path = Path::new(p.as_str().expect("Dependency path must be a toml string"));
+                if path.is_relative() {
+                    let new = Path::new("../..").join(path).display().to_string();
+                    *p = new.into();
+                }
+            }
+        }
+    };
+    let dep_keys = &["dependencies", "build-dependencies", "dev-dependencies"];
+    let fix_all_deps = |t: &mut Table| {
+        for k in dep_keys {
+            if let Some(t) = t.get_mut(*k) {
+                let t = t.as_table_mut().unwrap_or_else(|| panic!("{k} must be a toml table"));
+                for (_, v) in t.iter_mut() {
+                    fix_dep(v);
+                }
+            }
+        }
+    };
+
+    // Either in root or in target.<something>
+    fix_all_deps(&mut cargo_toml);
+    if let Some(t) = cargo_toml.get_mut("target") {
+        let t = t.as_table_mut().expect("target must be a toml table");
+        for (_, v) in t.iter_mut() {
+            fix_all_deps(v.as_table_mut().expect("target must contain toml tables"));
+        }
+    }
+
+    // Write new Cargo.toml
+    let gpu_toml_dir = target_dir.join("gpu-kernel");
+    fs::create_dir_all(&gpu_toml_dir).expect("Failed to create gpu-kernel target dir");
+    let gpu_toml = gpu_toml_dir.join("Cargo.toml");
+    fs::write(&gpu_toml, cargo_toml.to_string().as_bytes()).expect("Failed to write GPU Cargo.toml");
+    // Copy Cargo.lock
+    if let Err(e) = fs::copy(&lock_path, gpu_toml_dir.join("Cargo.lock")) {
+        println!("Warning: Failed to copy Cargo.lock to GPU directory ({e}), ignoring");
+    }
 
     let mut cargo = Command::new("cargo");
     cargo.args(&[
         "build",
-        "--frozen",
         "--target",
         target,
         "--lib",
         "-Zbuild-std=core,alloc",
-        "--features",
-        "gpu",
+        "-m",
+        &gpu_toml.display().to_string(),
+        "--target-dir",
+        &target_dir.display().to_string(),
     ]);
+    if has_gpu_feature {
+        cargo.args(&[
+            "--features",
+            "gpu",
+        ]);
+    }
     for f in cargoflags.split(' ') {
         cargo.arg(f);
     }
@@ -208,9 +294,8 @@ pub fn kernel_lib_impl(_: proc_macro::TokenStream) -> proc_macro::TokenStream {
         const _: &[u8] = std::include_bytes!(#manifest_path);
         const _: &[u8] = std::include_bytes!(#lock_path);
         const _: std::option::Option<&str> = std::option_env!("CARGO_TARGET_DIR");
-        const _: std::option::Option<&str> = std::option_env!("GPU_CARGO_BUILD_RUSTFLAGS");
-        const _: std::option::Option<&str> = std::option_env!("GPU_CARGO_BUILD_RELEASE");
-        const _: std::option::Option<&str> = std::option_env!("GPU_CARGO_BUILD_VERBOSE");
+        const _: std::option::Option<&str> = std::option_env!(#target_rustflags);
+        const _: std::option::Option<&str> = std::option_env!(#target_cargoflags);
 
         static GPU_KERNEL_MODULE_DATA: &[u8] = std::include_bytes!(#kernel_path);
         static GPU_KERNEL_MODULE: std::sync::LazyLock<::gpu_kernel::Module> = std::sync::LazyLock::new(|| ::gpu_kernel::Module::new(GPU_KERNEL_MODULE_DATA));
