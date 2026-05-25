@@ -10,5 +10,7 @@ proc-macro = true
 amd = []
 
 [dependencies]
+amdgpu-device-libs-build = { path = "/home/sebi/Downloads/amdgpu-rust/amdgpu-rs/amdgpu-device-libs-build" }
 quote = "1"
 syn = { version = "2", features = ["full"] }
+toml = "1"

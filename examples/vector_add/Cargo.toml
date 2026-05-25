@@ -8,12 +8,10 @@ edition = "2024"
 crate-type = ["cdylib"]
 path = "src/main.rs"
 
+# This gets defined when building for the gpu.
+# It can be omitted when using target_arch or similar for cfg conditions, it exists for convenience only.
 [features]
 gpu = []
-
-# TODO Remove if possible
-[build-dependencies]
-amdgpu-device-libs-build = "0.1"
 
 [dependencies]
 gpu-kernel = { path = "../.." }

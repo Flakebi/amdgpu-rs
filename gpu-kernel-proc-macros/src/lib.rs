@@ -1,11 +1,12 @@
 extern crate proc_macro;
 
-use std::env;
 use std::path::PathBuf;
 use std::process::Command;
+use std::{env, fs};
 
 use quote::{format_ident, quote};
 use syn::{FnArg, ItemFn, Pat, parse_macro_input};
+use toml::Table;
 
 #[proc_macro_attribute]
 pub fn kernel(
@@ -101,6 +102,13 @@ pub fn kernel(
 
 #[proc_macro]
 pub fn kernel_lib_impl(_: proc_macro::TokenStream) -> proc_macro::TokenStream {
+    let target = {
+        #[cfg(feature = "amd")]
+        "amdgcn-amd-amdhsa"
+    };
+    let target_env = target.replace('-', "_").to_uppercase();
+    let target_rustflags = format!("CARGO_TARGET_{target_env}_RUSTFLAGS");
+
     // Compile gpu crate here
     let crate_name = env::var("CARGO_CRATE_NAME").expect("$CARGO_CRATE_NAME must be set");
     let kernel_file = format!("{crate_name}.elf");
@@ -108,46 +116,80 @@ pub fn kernel_lib_impl(_: proc_macro::TokenStream) -> proc_macro::TokenStream {
         PathBuf::from(env::var("CARGO_MANIFEST_DIR").expect("$CARGO_MANIFEST_DIR must be set"));
     let manifest_path =
         PathBuf::from(env::var("CARGO_MANIFEST_PATH").expect("$CARGO_MANIFEST_PATH must be set"));
-    // TODO Support CARGO_TARGET_DIR if set
-    let kernel_path = manifest_dir
-        .join("target")
+    let lock_path = manifest_dir.join("Cargo.lock");
+    // Use CARGO_TARGET_DIR if set
+    let target_dir = env::var("CARGO_TARGET_DIR")
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| manifest_dir.join("target"));
+    let kernel_path = target_dir
         .join("amdgcn-amd-amdhsa")
         .join("release")
         .join(&kernel_file);
 
-    // Custom settings
-    let flags = env::var("GPU_CARGO_BUILD_RUSTFLAGS").unwrap_or_default();
-    // Default to release build, set GPU_CARGO_BUILD_RELEASE=0 to build debug
-    let build_release = env::var("GPU_CARGO_BUILD_RELEASE").unwrap_or_default() != "0";
-    let build_verbose = env::var("GPU_CARGO_BUILD_VERBOSE").unwrap_or_default() == "1";
-    let target = {
-        #[cfg(feature = "amd")]
-        "amdgcn-amd-amdhsa"
+    let env_rustflags = env::var(&target_rustflags).unwrap_or_default();
+    // Custom setting, defaults to --release
+    let cargoflags =
+        env::var(&format!("CARGO_TARGET_{target_env}_FLAGS")).unwrap_or_else(|_| "--release".into());
+
+    // Get rustflags from env and .cargo/config.toml
+    let cargo_config_path = manifest_dir.join(".cargo").join("config.toml");
+    let config_rustflags = if fs::exists(&cargo_config_path).expect("Failed to check for .cargo/config.toml") {
+        let config =
+            fs::read_to_string(&cargo_config_path).expect("Failed to read .cargo/config.toml");
+        let config = config
+            .parse::<Table>()
+            .expect("Invalid toml in .cargo/config.toml");
+        config
+            .get("target")
+            .and_then(|v| v.as_table().expect("Failed to parse .cargo/config.toml").get(target))
+            .and_then(|v| v.as_table().expect("Failed to parse .cargo/config.toml").get("rustflags"))
+            .map(|v| v.as_array().expect("Failed to parse .cargo/config.toml")
+                .iter().map(|v| v.as_str().expect("Failed to parse .cargo/config.toml").to_string()).collect::<Vec<_>>())
+            .unwrap_or_default()
+    } else {
+        Vec::new()
     };
+    let all_rustflags = format!("{env_rustflags} {}", config_rustflags.join(" "));
+
+    // Find important things in flags
+    let target_cpu = {
+        let i = all_rustflags.rfind("target-cpu").unwrap_or_else(|| panic!("Did not find target-cpu, make sure to set `-Ctarget-cpu=...` in ${target_rustflags}"));
+        let start = i + "target-cpu".len() + 1;
+        let end = all_rustflags[start..].find(' ').map(|i| start + i).unwrap_or(all_rustflags.len());
+        &all_rustflags[start..end]
+    };
+        // Enabled and not disabled or enabling comes later than disabling
+    let is_wave64_enabled = 
+        all_rustflags.rfind("+wavefrontsize64").map(|i| if let Some(j) = all_rustflags.rfind("-wavefrontsize64") {
+            i > j
+        } else {
+                true
+            }).unwrap_or_default();
+
+    let link_args = amdgpu_device_libs_build::get_link_args(is_wave64_enabled, &target_cpu).link_args;
+    let new_rustflags = link_args.iter().map(|v| format!("-Clink-arg={v}")).collect::<Vec<_>>();
+
+    // TODO Copy Cargo.toml, insert lib.path = main.rs if lib does not exist, set lib.crate-type = cdylib
+    // TODO Set --features gpu only when it exists in Cargo.toml
 
     let mut cargo = Command::new("cargo");
     cargo.args(&[
         "build",
+        "--frozen",
         "--target",
         target,
         "--lib",
         "-Zbuild-std=core,alloc",
-        // TODO Only when it exists in Cargo.toml
         "--features",
         "gpu",
     ]);
-    if build_release {
-        cargo.arg("--release");
+    for f in cargoflags.split(' ') {
+        cargo.arg(f);
     }
-    if build_verbose {
-        cargo.arg("--verbose");
-    }
-    // TODO If we have a reliable way to find the target-cpu, we can call amdgpu-device-libs-build here
-    // Search in env build flags and .cargo/config.toml?
+
     cargo.env(
-        "CARGO_BUILD_RUSTFLAGS",
-        // format!("{flags} --crate-type cdylib -Clinker-plugin-lto"),
-        format!("{flags} --verbose -Clinker-plugin-lto"),
+        &target_rustflags,
+        format!("{env_rustflags} {} -Clinker-plugin-lto", new_rustflags.join(" ")),
     );
     let res = cargo
         .status()
@@ -158,11 +200,14 @@ pub fn kernel_lib_impl(_: proc_macro::TokenStream) -> proc_macro::TokenStream {
 
     let kernel_path = kernel_path.display().to_string();
     let manifest_path = manifest_path.display().to_string();
+    let lock_path = lock_path.display().to_string();
     let output = quote! {
         // TODO Use proc_macro_tracked_path
         // Changes to Cargo.toml can affect the GPU build.
         // Dummy include to re-run the macro if it changed.
         const _: &[u8] = std::include_bytes!(#manifest_path);
+        const _: &[u8] = std::include_bytes!(#lock_path);
+        const _: std::option::Option<&str> = std::option_env!("CARGO_TARGET_DIR");
         const _: std::option::Option<&str> = std::option_env!("GPU_CARGO_BUILD_RUSTFLAGS");
         const _: std::option::Option<&str> = std::option_env!("GPU_CARGO_BUILD_RELEASE");
         const _: std::option::Option<&str> = std::option_env!("GPU_CARGO_BUILD_VERBOSE");
