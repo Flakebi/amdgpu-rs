@@ -38,16 +38,9 @@ pub fn kernel(
         // TODO Name, args, make pub when original is pub
         #[cfg(not(any(target_arch = "amdgpu", target_arch = "nvptx64")))]
         pub fn test(launch_config: ::gpu_kernel::LaunchConfig, i: u32) {
-            static TEST_KERNEL: std::sync::LazyLock<::gpu_kernel::Kernel> = std::sync::LazyLock::new(|| {
-                unsafe {
-                    let mut function: ::gpu_kernel::hip_runtime_sys::hipFunction_t = std::ptr::null_mut();
-                    // TODO actual name
-                    let kernel_name = std::ffi::CString::new("test_kernel").expect("Invalid kernel name");
-                    let result = ::gpu_kernel::hip_runtime_sys::hipModuleGetFunction(&mut function, GPU_KERNEL_MODULE.0, kernel_name.as_ptr());
-                    assert_eq!(result, ::gpu_kernel::hip_runtime_sys::hipError_t::hipSuccess, "Failed to find kernel {:?}", kernel_name);
-                    // TODO
-                    ::gpu_kernel::Kernel::new(function)
-                }
+            static KERNEL: std::sync::LazyLock<::gpu_kernel::Kernel> = std::sync::LazyLock::new(|| {
+                // TODO actual name
+                GPU_KERNEL_MODULE.get_kernel("test_kernel")
             });
 
             // Launch kernel
@@ -55,7 +48,7 @@ pub fn kernel(
                 i: u32,
             }
             let args: Args = Args { i };
-            TEST_KERNEL.launch(launch_config, args);
+            KERNEL.launch(launch_config, args);
         }
     };
 
@@ -105,7 +98,6 @@ pub fn kernel_lib_impl(_: proc_macro::TokenStream) -> proc_macro::TokenStream {
         panic!("Cargo did not exit successfully, failed to compile for GPU");
     }
 
-    // TODO Pick names that do not conflict
     let kernel_path = kernel_path.display().to_string();
     let output = quote! {
         static GPU_KERNEL_MODULE_DATA: &[u8] = std::include_bytes!(#kernel_path);
@@ -116,17 +108,7 @@ pub fn kernel_lib_impl(_: proc_macro::TokenStream) -> proc_macro::TokenStream {
             let _ = std::include_bytes!("main.rs");
             let _ = std::include_bytes!("../Cargo.toml");
 
-
-            unsafe {
-                // TODO Not always 0
-                let result = ::gpu_kernel::hip_runtime_sys::hipSetDevice(0);
-                assert_eq!(result, ::gpu_kernel::hip_runtime_sys::hipError_t::hipSuccess);
-                let mut module: ::gpu_kernel::hip_runtime_sys::hipModule_t = std::ptr::null_mut();
-                let result =
-                    ::gpu_kernel::hip_runtime_sys::hipModuleLoadData(&mut module, GPU_KERNEL_MODULE_DATA.as_ptr() as *const std::ffi::c_void);
-                assert_eq!(result, ::gpu_kernel::hip_runtime_sys::hipError_t::hipSuccess);
-                ::gpu_kernel::Module(module)
-            }
+            ::gpu_kernel::Module::new(GPU_KERNEL_MODULE_DATA)
         });
     };
     proc_macro::TokenStream::from(output)

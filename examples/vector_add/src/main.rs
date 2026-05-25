@@ -10,7 +10,6 @@ pub fn test(i: i32) {
     use gpu_kernel::prelude::*;
 
     println!("Hello World from the GPU!");
-    // i + 42
 }
 
 #[cfg(not(feature = "gpu"))]
@@ -19,7 +18,13 @@ fn main() {
 
     println!("Hello, world!");
 
-    test(LaunchConfig::threads(32), 1);
+    test(
+        LaunchConfig::new()
+            .threads_per_workgroup([4, 1, 1])
+            .workgroups([1, 1, 1])
+            .build(),
+        1,
+    );
 }
 
 /*fn gpu_with_std_same_crate() {
