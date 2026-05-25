@@ -1,5 +1,11 @@
 #![cfg_attr(any(target_arch = "amdgpu", target_arch = "nvptx64"), no_std)]
 
+#[cfg(all(
+    feature = "amd",
+    not(any(target_arch = "amdgpu", target_arch = "nvptx64"))
+))]
+use hip_runtime_sys::hipError_t::hipSuccess;
+
 pub use gpu_kernel_proc_macros::{kernel, kernel_lib_impl};
 
 #[cfg(all(
@@ -97,7 +103,7 @@ impl Module {
                 &mut module,
                 data.as_ptr() as *const std::ffi::c_void,
             );
-            assert_eq!(result, hip_runtime_sys::hipError_t::hipSuccess);
+            assert_eq!(result, hipSuccess);
             Self { module }
         }
     }
@@ -105,25 +111,20 @@ impl Module {
     #[doc(hidden)]
     pub fn get_kernel(&self, name: &str) -> Kernel {
         #[cfg(feature = "amd")]
-        {
-            use std::ffi;
-
-            unsafe {
-                let mut function: hip_runtime_sys::hipFunction_t = std::ptr::null_mut();
-                let kernel_name = std::ffi::CString::new(name).expect("Invalid kernel name");
-                let result = hip_runtime_sys::hipModuleGetFunction(
-                    &mut function,
-                    self.module,
-                    kernel_name.as_ptr(),
-                );
-                assert_eq!(
-                    result,
-                    hip_runtime_sys::hipError_t::hipSuccess,
-                    "Failed to find kernel {:?}",
-                    kernel_name
-                );
-                Kernel { func: function }
-            }
+        unsafe {
+            let mut function: hip_runtime_sys::hipFunction_t = std::ptr::null_mut();
+            let kernel_name = std::ffi::CString::new(name).expect("Invalid kernel name");
+            let result = hip_runtime_sys::hipModuleGetFunction(
+                &mut function,
+                self.module,
+                kernel_name.as_ptr(),
+            );
+            assert_eq!(
+                result, hipSuccess,
+                "Failed to find kernel {:?}",
+                kernel_name
+            );
+            Kernel { func: function }
         }
     }
 }
@@ -163,18 +164,10 @@ impl Kernel {
                     std::ptr::null_mut(), // params (unimplemented in hip)
                     config.as_mut_ptr(),  // arguments
                 );
-                assert_eq!(
-                    result,
-                    hip_runtime_sys::hipError_t::hipSuccess,
-                    "Failed to launch kernel"
-                );
+                assert_eq!(result, hipSuccess, "Failed to launch kernel");
 
                 let result = hip_runtime_sys::hipDeviceSynchronize();
-                assert_eq!(
-                    result,
-                    hip_runtime_sys::hipError_t::hipSuccess,
-                    "Failed to wait for kernel to finish"
-                );
+                assert_eq!(result, hipSuccess, "Failed to wait for kernel to finish");
             }
         }
     }

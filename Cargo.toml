@@ -5,7 +5,7 @@ edition = "2024"
 
 [features]
 default = ["amd"]
-amd = ["dep:hip-runtime-sys", "dep:amdgpu-device-libs"]
+amd = ["dep:hip-runtime-sys", "dep:amdgpu-device-libs", "gpu-kernel-proc-macros/amd"]
 
 [dependencies]
 gpu-kernel-proc-macros = { version = "0.1", path = "gpu-kernel-proc-macros" }

@@ -9,7 +9,7 @@ gpu_kernel::kernel_lib!();
 pub fn test(i: i32) {
     use gpu_kernel::prelude::*;
 
-    println!("Hello World from the GPU!");
+    println!("Hello World #{i} from the GPU!");
 }
 
 #[cfg(not(feature = "gpu"))]
