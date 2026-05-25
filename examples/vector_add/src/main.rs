@@ -6,10 +6,16 @@ use gpu_kernel::kernel;
 gpu_kernel::kernel_lib!();
 
 #[kernel]
-pub fn test(a: &[u32], b: &[u32]) {
+#[allow(improper_ctypes_definitions, improper_gpu_kernel_arg)]
+pub fn test<'a, 'b>(a: &'a [u32], b: &'b [u32], c: *mut u32) {
     use gpu_kernel::prelude::*;
 
-    println!("Hello World #{} from the GPU!", a[0]);
+    let id = workitem_id_x() as usize;
+    println!("Hello World #{} from the GPU!", id);
+
+    unsafe {
+        *c.offset(id as isize) = a[id] + b[id];
+    }
 }
 
 #[cfg(not(feature = "gpu"))]
@@ -18,8 +24,7 @@ fn main() {
 
     println!("Hello, world!");
 
-    // TODO Implement actual vector-add
-    // TODO Use global hip allocator for shared mem and pass a slice?
+    // TODO Use global hip allocator for unified mem?
 
     let mut a = Vec::new();
     let mut b = Vec::new();
@@ -27,13 +32,18 @@ fn main() {
         a.push(i);
         b.push(i);
     }
+    let mut c = Vec::new();
+    c.resize(a.len(), 0);
 
     test(
         LaunchConfig::new()
-            .threads_per_workgroup([4, 1, 1])
+            .threads_per_workgroup([a.len() as u32, 1, 1])
             .workgroups([1, 1, 1])
             .build(),
         &a,
         &b,
+        c.as_mut_ptr(),
     );
+
+    println!("Result: {c:?}");
 }

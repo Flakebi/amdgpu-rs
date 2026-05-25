@@ -22,6 +22,7 @@ pub fn kernel(
     let orig_ident = func.sig.ident;
     let kernel_ident = format_ident!("{}_kernel", orig_ident);
     let inputs = func.sig.inputs;
+    let generics = func.sig.generics;
     let output = func.sig.output;
 
     assert!(
@@ -32,10 +33,11 @@ pub fn kernel(
         func.sig.unsafety.is_none(),
         "#[kernel] `{orig_ident}` cannot be unsafe",
     );
-    assert!(
+    // TODO Forbid only type generics
+    /*assert!(
         func.sig.generics.lt_token.is_none(),
         "#[kernel] `{orig_ident}` cannot be generic",
-    );
+    );*/
     assert!(
         func.sig.variadic.is_none(),
         "#[kernel] `{orig_ident}` cannot be variadic"
@@ -76,26 +78,26 @@ pub fn kernel(
         #[cfg(any(target_arch = "amdgpu", target_arch = "nvptx64"))]
         #[unsafe(no_mangle)]
         #(#attrs)*
-        #vis unsafe extern "gpu-kernel" fn #kernel_ident(#inputs) #output
+        #vis unsafe extern "gpu-kernel" fn #kernel_ident #generics(#inputs) #output
             #code
 
         // CPU code
 
         #[cfg(not(any(target_arch = "amdgpu", target_arch = "nvptx64")))]
         #(#attrs)*
-        #vis fn #orig_ident(launch_config: ::gpu_kernel::LaunchConfig, #(#input_names: #input_tys),*) {
+        #vis fn #orig_ident #generics(launch_config: ::gpu_kernel::LaunchConfig, #(#input_names: #input_tys),*) {
             static KERNEL: std::sync::LazyLock<::gpu_kernel::Kernel> = std::sync::LazyLock::new(|| {
                 GPU_KERNEL_MODULE.get_kernel(stringify!(#kernel_ident))
             });
 
             // Assemble arguments
             #[repr(C)]
-            struct Args {
+            struct Args #generics {
                 #(#input_names: #input_tys),*
             }
-            let args: Args = Args { #(#input_names),* };
+            let mut args: Args = Args { #(#input_names),* };
             // Launch kernel
-            KERNEL.launch(launch_config, args);
+            KERNEL.launch(launch_config, &mut args);
         }
     };
 

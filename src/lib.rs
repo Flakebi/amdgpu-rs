@@ -131,13 +131,12 @@ impl Module {
 
 #[cfg(not(any(target_arch = "amdgpu", target_arch = "nvptx64")))]
 impl Kernel {
-    pub fn launch<T: 'static>(&self, launch_config: LaunchConfig, mut args: T) {
+    pub fn launch<T>(&self, launch_config: LaunchConfig, args: &mut T) {
         #[cfg(feature = "amd")]
         {
             use std::ffi;
 
             let mut size = std::mem::size_of::<T>();
-            let args = &mut args;
 
             #[allow(clippy::manual_dangling_ptr)]
             let mut config = [
