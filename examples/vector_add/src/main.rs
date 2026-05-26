@@ -24,7 +24,7 @@ fn main() {
 
     println!("Hello, world!");
 
-    // TODO Use global hip allocator for unified mem?
+    // TODO Add example with split no_std lib.rs/std main.rs
 
     let mut a = Vec::new();
     let mut b = Vec::new();

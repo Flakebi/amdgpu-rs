@@ -7,10 +7,10 @@ edition = "2024"
 proc-macro = true
 
 [features]
-amd = []
+amd = ["dep:amdgpu-device-libs-build"]
 
 [dependencies]
-amdgpu-device-libs-build = { path = "/home/sebi/Downloads/amdgpu-rust/amdgpu-rs/amdgpu-device-libs-build" }
+amdgpu-device-libs-build = { path = "../../amdgpu-rs/amdgpu-device-libs-build", optional = true }
 quote = "1"
 syn = { version = "2", features = ["full"] }
 toml = "1"

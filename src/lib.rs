@@ -42,6 +42,49 @@ pub struct LaunchConfigBuilder {
     threads_per_workgroup: Option<[u32; 3]>,
 }
 
+#[cfg(all(
+    feature = "amd-allocator",
+    not(any(target_arch = "amdgpu", target_arch = "nvptx64"))
+))]
+pub struct AmdAllocator;
+
+#[cfg(all(
+    feature = "amd-allocator",
+    not(any(target_arch = "amdgpu", target_arch = "nvptx64"))
+))]
+unsafe impl std::alloc::GlobalAlloc for AmdAllocator {
+    #[inline]
+    unsafe fn alloc(&self, layout: std::alloc::Layout) -> *mut u8 {
+        use std::ffi;
+        unsafe {
+            let mut ptr: *mut ffi::c_void = std::ptr::null_mut();
+            let result = hip_runtime_sys::hipMallocManaged(
+                &mut ptr,
+                layout.size(),
+                hip_runtime_sys::hipMemAttachGlobal,
+            );
+            assert_eq!(result, hipSuccess);
+            ptr as *mut _
+        }
+    }
+
+    #[inline]
+    unsafe fn dealloc(&self, ptr: *mut u8, _: std::alloc::Layout) {
+        unsafe {
+            let result = hip_runtime_sys::hipFree(ptr as *mut _);
+            assert_eq!(result, hipSuccess);
+        };
+    }
+}
+
+/// Define global allocator.
+#[cfg(all(
+    feature = "amd-allocator",
+    not(any(target_arch = "amdgpu", target_arch = "nvptx64"))
+))]
+#[global_allocator]
+static HEAP: AmdAllocator = AmdAllocator;
+
 #[cfg(not(any(target_arch = "amdgpu", target_arch = "nvptx64")))]
 #[doc(hidden)]
 pub struct Module {

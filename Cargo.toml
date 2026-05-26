@@ -4,8 +4,10 @@ version = "0.1.0"
 edition = "2024"
 
 [features]
-default = ["amd"]
+default = ["amd", "amd-allocator"]
 amd = ["dep:hip-runtime-sys", "dep:amdgpu-device-libs", "gpu-kernel-proc-macros/amd"]
+# Allocate everything as unified memory, allows sharing normal CPU allocations with the GPU without explicitly transferring memory
+amd-allocator = ["amd"]
 
 [dependencies]
 gpu-kernel-proc-macros = { version = "0.1", path = "gpu-kernel-proc-macros" }

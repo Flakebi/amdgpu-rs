@@ -29,6 +29,7 @@ pub fn kernel(
         func.sig.asyncness.is_none(),
         "#[kernel] `{orig_ident}` cannot be async",
     );
+    // TODO Force kernel to be unsafe for now because &mut is never allowed
     assert!(
         func.sig.unsafety.is_none(),
         "#[kernel] `{orig_ident}` cannot be unsafe",
@@ -134,56 +135,96 @@ pub fn kernel_lib_impl(_: proc_macro::TokenStream) -> proc_macro::TokenStream {
 
     let env_rustflags = env::var(&target_rustflags).unwrap_or_default();
     // Custom setting, defaults to --release
-    let cargoflags =
-        env::var(&target_cargoflags).unwrap_or_else(|_| "--release".into());
+    let cargoflags = env::var(&target_cargoflags).unwrap_or_else(|_| "--release".into());
 
     // Get rustflags from env and .cargo/config.toml
     let cargo_config_path = manifest_dir.join(".cargo").join("config.toml");
-    let config_rustflags = if fs::exists(&cargo_config_path).expect("Failed to check for .cargo/config.toml") {
-        let config =
-            fs::read_to_string(&cargo_config_path).expect("Failed to read .cargo/config.toml");
-        let config = config
-            .parse::<Table>()
-            .expect("Invalid toml in .cargo/config.toml");
-        config
-            .get("target")
-            .and_then(|v| v.as_table().expect("Failed to parse .cargo/config.toml").get(target))
-            .and_then(|v| v.as_table().expect("Failed to parse .cargo/config.toml").get("rustflags"))
-            .map(|v| v.as_array().expect("Failed to parse .cargo/config.toml")
-                .iter().map(|v| v.as_str().expect("Failed to parse .cargo/config.toml").to_string()).collect::<Vec<_>>())
-            .unwrap_or_default()
-    } else {
-        Vec::new()
-    };
+    let config_rustflags =
+        if fs::exists(&cargo_config_path).expect("Failed to check for .cargo/config.toml") {
+            let config =
+                fs::read_to_string(&cargo_config_path).expect("Failed to read .cargo/config.toml");
+            let config = config
+                .parse::<Table>()
+                .expect("Invalid toml in .cargo/config.toml");
+            config
+                .get("target")
+                .and_then(|v| {
+                    v.as_table()
+                        .expect("Failed to parse .cargo/config.toml")
+                        .get(target)
+                })
+                .and_then(|v| {
+                    v.as_table()
+                        .expect("Failed to parse .cargo/config.toml")
+                        .get("rustflags")
+                })
+                .map(|v| {
+                    v.as_array()
+                        .expect("Failed to parse .cargo/config.toml")
+                        .iter()
+                        .map(|v| {
+                            v.as_str()
+                                .expect("Failed to parse .cargo/config.toml")
+                                .to_string()
+                        })
+                        .collect::<Vec<_>>()
+                })
+                .unwrap_or_default()
+        } else {
+            Vec::new()
+        };
     let all_rustflags = format!("{env_rustflags} {}", config_rustflags.join(" "));
 
     // Find important things in flags
     let target_cpu = {
         let i = all_rustflags.rfind("target-cpu").unwrap_or_else(|| panic!("Did not find target-cpu, make sure to set `-Ctarget-cpu=...` in ${target_rustflags}"));
         let start = i + "target-cpu".len() + 1;
-        let end = all_rustflags[start..].find(' ').map(|i| start + i).unwrap_or(all_rustflags.len());
+        let end = all_rustflags[start..]
+            .find(' ')
+            .map(|i| start + i)
+            .unwrap_or(all_rustflags.len());
         &all_rustflags[start..end]
     };
-        // Enabled and not disabled or enabling comes later than disabling
-    let is_wave64_enabled = 
-        all_rustflags.rfind("+wavefrontsize64").map(|i| if let Some(j) = all_rustflags.rfind("-wavefrontsize64") {
-            i > j
-        } else {
+    // Enabled and not disabled or enabling comes later than disabling
+    let is_wave64_enabled = all_rustflags
+        .rfind("+wavefrontsize64")
+        .map(|i| {
+            if let Some(j) = all_rustflags.rfind("-wavefrontsize64") {
+                i > j
+            } else {
                 true
-            }).unwrap_or_default();
+            }
+        })
+        .unwrap_or_default();
 
-    let link_args = amdgpu_device_libs_build::get_link_args(is_wave64_enabled, &target_cpu).link_args;
-    let new_rustflags = link_args.iter().map(|v| format!("-Clink-arg={v}")).collect::<Vec<_>>();
+    let link_args =
+        amdgpu_device_libs_build::get_link_args(is_wave64_enabled, &target_cpu).link_args;
+    let new_rustflags = link_args
+        .iter()
+        .map(|v| format!("-Clink-arg={v}"))
+        .collect::<Vec<_>>();
 
     // Copy Cargo.toml, insert lib.path = main.rs if lib does not exist, set lib.crate-type = cdylib
-    let cargo_toml =
-        fs::read_to_string(&manifest_path).unwrap_or_else(|e| panic!("Failed to read {}: {e}", manifest_path.display()));
+    let cargo_toml = fs::read_to_string(&manifest_path)
+        .unwrap_or_else(|e| panic!("Failed to read {}: {e}", manifest_path.display()));
     let mut cargo_toml = cargo_toml
         .parse::<Table>()
         .unwrap_or_else(|e| panic!("Failed to parse {}: {e}", manifest_path.display()));
-    let has_gpu_feature = cargo_toml.get("features").map(|v| v.as_table().expect("features needs to be a toml table").contains_key("gpu")).unwrap_or_default();
-    let has_lib = cargo_toml.contains_key("lib") || fs::exists(manifest_dir.join("src").join("lib.rs")).expect("Failed to check for lib.rs");
-    let lib_config = cargo_toml.entry("lib").or_insert_with(|| Table::new().into()).as_table_mut().expect("lib needs to be a toml table");
+    let has_gpu_feature = cargo_toml
+        .get("features")
+        .map(|v| {
+            v.as_table()
+                .expect("features needs to be a toml table")
+                .contains_key("gpu")
+        })
+        .unwrap_or_default();
+    let has_lib = cargo_toml.contains_key("lib")
+        || fs::exists(manifest_dir.join("src").join("lib.rs")).expect("Failed to check for lib.rs");
+    let lib_config = cargo_toml
+        .entry("lib")
+        .or_insert_with(|| Table::new().into())
+        .as_table_mut()
+        .expect("lib needs to be a toml table");
 
     // Set or fixup lib path
     match lib_config.entry("path") {
@@ -226,7 +267,9 @@ pub fn kernel_lib_impl(_: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let fix_all_deps = |t: &mut Table| {
         for k in dep_keys {
             if let Some(t) = t.get_mut(*k) {
-                let t = t.as_table_mut().unwrap_or_else(|| panic!("{k} must be a toml table"));
+                let t = t
+                    .as_table_mut()
+                    .unwrap_or_else(|| panic!("{k} must be a toml table"));
                 for (_, v) in t.iter_mut() {
                     fix_dep(v);
                 }
@@ -247,7 +290,8 @@ pub fn kernel_lib_impl(_: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let gpu_toml_dir = target_dir.join("gpu-kernel");
     fs::create_dir_all(&gpu_toml_dir).expect("Failed to create gpu-kernel target dir");
     let gpu_toml = gpu_toml_dir.join("Cargo.toml");
-    fs::write(&gpu_toml, cargo_toml.to_string().as_bytes()).expect("Failed to write GPU Cargo.toml");
+    fs::write(&gpu_toml, cargo_toml.to_string().as_bytes())
+        .expect("Failed to write GPU Cargo.toml");
     // Copy Cargo.lock
     if let Err(e) = fs::copy(&lock_path, gpu_toml_dir.join("Cargo.lock")) {
         println!("Warning: Failed to copy Cargo.lock to GPU directory ({e}), ignoring");
@@ -266,10 +310,7 @@ pub fn kernel_lib_impl(_: proc_macro::TokenStream) -> proc_macro::TokenStream {
         &target_dir.display().to_string(),
     ]);
     if has_gpu_feature {
-        cargo.args(&[
-            "--features",
-            "gpu",
-        ]);
+        cargo.args(&["--features", "gpu"]);
     }
     for f in cargoflags.split(' ') {
         cargo.arg(f);
@@ -277,7 +318,10 @@ pub fn kernel_lib_impl(_: proc_macro::TokenStream) -> proc_macro::TokenStream {
 
     cargo.env(
         &target_rustflags,
-        format!("{env_rustflags} {} -Clinker-plugin-lto", new_rustflags.join(" ")),
+        format!(
+            "{env_rustflags} {} -Clinker-plugin-lto",
+            new_rustflags.join(" ")
+        ),
     );
     let res = cargo
         .status()
