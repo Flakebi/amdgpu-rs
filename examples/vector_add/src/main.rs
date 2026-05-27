@@ -7,12 +7,12 @@ gpu_kernel::kernel_lib!();
 
 #[kernel]
 #[allow(improper_ctypes_definitions, improper_gpu_kernel_arg)]
-pub fn test<'a, 'b>(a: &'a [u32], b: &'b [u32], c: *mut u32) {
+pub unsafe fn kernel(a: &[u32], b: &[u32], c: *mut u32) {
     use gpu_kernel::prelude::*;
 
     let id = workitem_id_x() as usize;
-    println!("Hello World #{} from the GPU!", id);
 
+    // Add two input numbers and store into output
     unsafe {
         *c.offset(id as isize) = a[id] + b[id];
     }
@@ -22,9 +22,9 @@ pub fn test<'a, 'b>(a: &'a [u32], b: &'b [u32], c: *mut u32) {
 fn main() {
     use gpu_kernel::LaunchConfig;
 
-    println!("Hello, world!");
-
     // TODO Add example with split no_std lib.rs/std main.rs
+    // TODO Move to amdgpu-rs
+    // TODO Build with CARGO_TARGET_AMDGCN_AMD_AMDHSA_RUSTFLAGS='-Ctarget-cpu=gfx...'
 
     let mut a = Vec::new();
     let mut b = Vec::new();
@@ -35,15 +35,20 @@ fn main() {
     let mut c = Vec::new();
     c.resize(a.len(), 0);
 
-    test(
-        LaunchConfig::new()
-            .threads_per_workgroup([a.len() as u32, 1, 1])
-            .workgroups([1, 1, 1])
-            .build(),
-        &a,
-        &b,
-        c.as_mut_ptr(),
-    );
+    // We pass CPU pointers to the kernel, which works fine, though is potentially slow.
+    // hipMemoryAdvise can be used to improve this.
+
+    unsafe {
+        kernel(
+            LaunchConfig::new()
+                .threads_per_workgroup([a.len() as u32, 1, 1])
+                .workgroups([1, 1, 1])
+                .build(),
+            &a,
+            &b,
+            c.as_mut_ptr(),
+        );
+    }
 
     println!("Result: {c:?}");
 }

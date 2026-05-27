@@ -10,6 +10,10 @@ use toml::Table;
 use toml::map::Entry;
 use toml::value::Array;
 
+// TODO Document more
+/// mutable arguments are forbidden,
+/// references must be to heap allocated memory or otherwise guarantee they are part of unified or managed memory,
+/// (https://rocm.docs.amd.com/projects/HIP/en/latest/how-to/hip_runtime_api/memory_management/unified_memory.html, `gpu-kernel` adds a global allocator that uses `hipMallocManaged()`)
 #[proc_macro_attribute]
 pub fn kernel(
     _attr: proc_macro::TokenStream,
@@ -19,6 +23,7 @@ pub fn kernel(
     let attrs = func.attrs;
     let vis = func.vis;
     let code = func.block;
+    let unsafety = func.sig.unsafety;
     let orig_ident = func.sig.ident;
     let kernel_ident = format_ident!("{}_kernel", orig_ident);
     let inputs = func.sig.inputs;
@@ -29,12 +34,11 @@ pub fn kernel(
         func.sig.asyncness.is_none(),
         "#[kernel] `{orig_ident}` cannot be async",
     );
-    // TODO Force kernel to be unsafe for now because &mut is never allowed
     assert!(
-        func.sig.unsafety.is_none(),
-        "#[kernel] `{orig_ident}` cannot be unsafe",
+        func.sig.unsafety.is_some(),
+        "#[kernel] `{orig_ident}` must be unsafe because not all arguments are guaranteed to be safe. See the `kernel` documentation.",
     );
-    // TODO Forbid only type generics
+    // TODO Forbid only type generics but allow lifetimes
     /*assert!(
         func.sig.generics.lt_token.is_none(),
         "#[kernel] `{orig_ident}` cannot be generic",
@@ -72,6 +76,65 @@ pub fn kernel(
         input_names.push(name);
     }
 
+    // Assemble arguments on the CPU
+    let args;
+    let drop;
+    if input_names.len() == 1 {
+        // Fast path, just pass the argument
+        args = quote! {
+            // Move arg to make mutable
+            let mut _gpu_kernel_arg = #(#input_names)*;
+            let _gpu_kernel_args = &mut _gpu_kernel_arg;
+        };
+        drop = quote! {};
+    } else {
+        // Multiple arguments, write them to a vector one by one.
+        // We do not create a struct out of the types as that could require explicit lifetimes and
+        // we want to allow users to not specify them in the function signature.
+        args = quote! {
+            let mut _gpu_kernel_size: usize = 0;
+            #(
+                _gpu_kernel_size =
+                    _gpu_kernel_size.next_multiple_of(std::mem::align_of_val(&#input_names))
+                    + std::mem::size_of_val(&#input_names);
+            )*
+
+            let mut _gpu_kernel_args = std::vec::Vec::<std::mem::MaybeUninit<u8>>::new();
+            _gpu_kernel_args.resize(_gpu_kernel_size, std::mem::MaybeUninit::uninit());
+
+            let mut _gpu_kernel_offset: usize = 0;
+            #(
+                // Align
+                _gpu_kernel_offset = _gpu_kernel_offset
+                    .next_multiple_of(std::mem::align_of_val(&#input_names));
+
+                // Move value
+                unsafe {
+                    std::ptr::write(_gpu_kernel_args.as_mut_ptr().add(_gpu_kernel_offset) as *mut _, #input_names);
+                }
+
+                _gpu_kernel_offset += std::mem::size_of_val(&#input_names);
+            )*
+
+            let _gpu_kernel_args = _gpu_kernel_args.as_mut_slice();
+        };
+
+        drop = quote! {
+            _gpu_kernel_offset = 0;
+            #(
+                // Align
+                _gpu_kernel_offset = _gpu_kernel_offset.next_multiple_of(std::mem::align_of_val(&#input_names));
+
+                // Drop value
+                unsafe {
+                    std::ptr::drop_in_place(_gpu_kernel_args.as_mut_ptr().add(_gpu_kernel_offset) as *mut #input_tys);
+                }
+
+                _gpu_kernel_offset += std::mem::size_of_val(&#input_names);
+            )*
+        };
+    }
+
     let output = quote! {
         // GPU code
 
@@ -79,26 +142,22 @@ pub fn kernel(
         #[cfg(any(target_arch = "amdgpu", target_arch = "nvptx64"))]
         #[unsafe(no_mangle)]
         #(#attrs)*
-        #vis unsafe extern "gpu-kernel" fn #kernel_ident #generics(#inputs) #output
+        #vis #unsafety extern "gpu-kernel" fn #kernel_ident #generics(#inputs) #output
             #code
 
         // CPU code
 
         #[cfg(not(any(target_arch = "amdgpu", target_arch = "nvptx64")))]
         #(#attrs)*
-        #vis fn #orig_ident #generics(launch_config: ::gpu_kernel::LaunchConfig, #(#input_names: #input_tys),*) {
-            static KERNEL: std::sync::LazyLock<::gpu_kernel::Kernel> = std::sync::LazyLock::new(|| {
-                GPU_KERNEL_MODULE.get_kernel(stringify!(#kernel_ident))
+        #vis #unsafety fn #orig_ident #generics(gpu_kernel_launch_config: ::gpu_kernel::LaunchConfig, #(#input_names: #input_tys),*) {
+            static GPU_KERNEL_KERNEL: std::sync::LazyLock<::gpu_kernel::Kernel> = std::sync::LazyLock::new(|| {
+                crate::GPU_KERNEL_MODULE.get_kernel(std::stringify!(#kernel_ident))
             });
 
-            // Assemble arguments
-            #[repr(C)]
-            struct Args #generics {
-                #(#input_names: #input_tys),*
-            }
-            let mut args: Args = Args { #(#input_names),* };
+            #args
             // Launch kernel
-            KERNEL.launch(launch_config, &mut args);
+            GPU_KERNEL_KERNEL.launch(gpu_kernel_launch_config, _gpu_kernel_args);
+            #drop
         }
     };
 
