@@ -22,21 +22,24 @@ pub unsafe fn kernel(a: &[u32], b: &[u32], c: *mut u32) {
 fn main() {
     use gpu_kernel::LaunchConfig;
 
-    // TODO Add example with split no_std lib.rs/std main.rs
     // TODO Move to amdgpu-rs
     // TODO Build with CARGO_TARGET_AMDGCN_AMD_AMDHSA_RUSTFLAGS='-Ctarget-cpu=gfx...'
 
+    // Create two vectors a and b to add together
     let mut a = Vec::new();
     let mut b = Vec::new();
     for i in 0..10 {
         a.push(i);
         b.push(i);
     }
+
+    // Create vector c to hold the results
     let mut c = Vec::new();
     c.resize(a.len(), 0);
 
     // We pass CPU pointers to the kernel, which works fine, though is potentially slow.
     // hipMemoryAdvise can be used to improve this.
+    // Only heap variables are shared on dedicated AMD GPUs, so this cannot be constant slices.
 
     unsafe {
         kernel(
