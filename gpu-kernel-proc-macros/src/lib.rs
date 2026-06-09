@@ -25,7 +25,8 @@ pub fn kernel(
     let code = func.block;
     let unsafety = func.sig.unsafety;
     let orig_ident = func.sig.ident;
-    let kernel_ident = format_ident!("{}_kernel", orig_ident);
+    let kernel_ident = format_ident!("{}_gpu_kernel", orig_ident);
+    let kernel_struct_ident = format_ident!("GpuKernel_{}", orig_ident);
     let inputs = func.sig.inputs;
     let generics = func.sig.generics;
     let output = func.sig.output;
@@ -138,7 +139,11 @@ pub fn kernel(
     let output = quote! {
         // GPU code
 
-        // Safety: Append "_kernel" to create a name that can use no_mangle
+        #[cfg(any(target_arch = "amdgpu", target_arch = "nvptx64"))]
+        #[allow(unused_imports)]
+        use ::gpu_kernel::prelude::*;
+
+        // Safety: Append "_gpu_kernel" to create a name that can use no_mangle
         #[cfg(any(target_arch = "amdgpu", target_arch = "nvptx64"))]
         #[unsafe(no_mangle)]
         #(#attrs)*
@@ -148,16 +153,35 @@ pub fn kernel(
         // CPU code
 
         #[cfg(not(any(target_arch = "amdgpu", target_arch = "nvptx64")))]
-        #(#attrs)*
-        #vis #unsafety fn #orig_ident #generics(gpu_kernel_launch_config: ::gpu_kernel::LaunchConfig, #(#input_names: #input_tys),*) {
-            static GPU_KERNEL_KERNEL: std::sync::LazyLock<::gpu_kernel::Kernel> = std::sync::LazyLock::new(|| {
-                crate::GPU_KERNEL_MODULE.get_kernel(std::stringify!(#kernel_ident))
-            });
+        #[allow(non_camel_case_types)]
+        #vis struct #kernel_struct_ident(::gpu_kernel::Kernel);
 
-            #args
-            // Launch kernel
-            GPU_KERNEL_KERNEL.launch(gpu_kernel_launch_config, _gpu_kernel_args);
-            #drop
+        #[cfg(not(any(target_arch = "amdgpu", target_arch = "nvptx64")))]
+        #[allow(non_upper_case_globals)]
+        #(#attrs)*
+        #vis static #orig_ident: std::sync::LazyLock<#kernel_struct_ident> = std::sync::LazyLock::new(|| {
+            #kernel_struct_ident(crate::GPU_KERNEL_MODULE.get_kernel(std::stringify!(#kernel_ident)))
+        });
+
+        #[cfg(not(any(target_arch = "amdgpu", target_arch = "nvptx64")))]
+        impl std::ops::Deref for #kernel_struct_ident {
+            type Target = ::gpu_kernel::Kernel;
+
+            fn deref(&self) -> &Self::Target {
+                &self.0
+            }
+        }
+
+        #[cfg(not(any(target_arch = "amdgpu", target_arch = "nvptx64")))]
+        impl #kernel_struct_ident {
+            #vis #unsafety fn launch #generics(&self, gpu_kernel_launch_config: &::gpu_kernel::LaunchConfig, #(#input_names: #input_tys),*) {
+                #args
+                // Launch kernel
+                unsafe {
+                    self.launch_impl(gpu_kernel_launch_config, _gpu_kernel_args);
+                }
+                #drop
+            }
         }
     };
 
@@ -179,7 +203,9 @@ pub fn kernel_lib_impl(_: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let crate_name = env::var("CARGO_CRATE_NAME").expect("$CARGO_CRATE_NAME must be set");
     let kernel_file = format!("{crate_name}.elf");
     let manifest_dir =
-        PathBuf::from(env::var("CARGO_MANIFEST_DIR").expect("$CARGO_MANIFEST_DIR must be set"));
+        PathBuf::from(env::var("CARGO_MANIFEST_DIR").expect("$CARGO_MANIFEST_DIR must be set"))
+            .canonicalize()
+            .expect("Failed to resolve $CARGO_MANIFEST_DIR");
     let manifest_path =
         PathBuf::from(env::var("CARGO_MANIFEST_PATH").expect("$CARGO_MANIFEST_PATH must be set"));
     let lock_path = manifest_dir.join("Cargo.lock");
@@ -197,42 +223,55 @@ pub fn kernel_lib_impl(_: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let cargoflags = env::var(&target_cargoflags).unwrap_or_else(|_| "--release".into());
 
     // Get rustflags from env and .cargo/config.toml
-    let cargo_config_path = manifest_dir.join(".cargo").join("config.toml");
-    let config_rustflags =
-        if fs::exists(&cargo_config_path).expect("Failed to check for .cargo/config.toml") {
-            let config =
-                fs::read_to_string(&cargo_config_path).expect("Failed to read .cargo/config.toml");
-            let config = config
-                .parse::<Table>()
-                .expect("Invalid toml in .cargo/config.toml");
-            config
-                .get("target")
-                .and_then(|v| {
-                    v.as_table()
-                        .expect("Failed to parse .cargo/config.toml")
-                        .get(target)
-                })
-                .and_then(|v| {
-                    v.as_table()
-                        .expect("Failed to parse .cargo/config.toml")
-                        .get("rustflags")
-                })
-                .map(|v| {
-                    v.as_array()
-                        .expect("Failed to parse .cargo/config.toml")
-                        .iter()
-                        .map(|v| {
-                            v.as_str()
-                                .expect("Failed to parse .cargo/config.toml")
-                                .to_string()
-                        })
-                        .collect::<Vec<_>>()
-                })
-                .unwrap_or_default()
-        } else {
-            Vec::new()
-        };
-    let all_rustflags = format!("{env_rustflags} {}", config_rustflags.join(" "));
+    let mut all_rustflags = env_rustflags.clone();
+    for path in manifest_dir
+        .ancestors()
+        .map(|p| p.join(".cargo"))
+        .chain(std::iter::once(
+            env::var("CARGO_HOME")
+                .map(PathBuf::from)
+                .unwrap_or_else(|_| env::home_dir().expect("$CARGO_HOME or ~ must be set")),
+        ))
+    {
+        let cargo_config_path = path.join("config.toml");
+        let config_rustflags =
+            if fs::exists(&cargo_config_path).expect("Failed to check for .cargo/config.toml") {
+                let config = fs::read_to_string(&cargo_config_path)
+                    .expect("Failed to read .cargo/config.toml");
+                let config = config
+                    .parse::<Table>()
+                    .expect("Invalid toml in .cargo/config.toml");
+                config
+                    .get("target")
+                    .and_then(|v| {
+                        v.as_table()
+                            .expect("Failed to parse .cargo/config.toml")
+                            .get(target)
+                    })
+                    .and_then(|v| {
+                        v.as_table()
+                            .expect("Failed to parse .cargo/config.toml")
+                            .get("rustflags")
+                    })
+                    .map(|v| {
+                        v.as_array()
+                            .expect("Failed to parse .cargo/config.toml")
+                            .iter()
+                            .map(|v| {
+                                v.as_str()
+                                    .expect("Failed to parse .cargo/config.toml")
+                                    .to_string()
+                            })
+                            .collect::<Vec<_>>()
+                    })
+                    .unwrap_or_default()
+            } else {
+                Vec::new()
+            };
+        let mut new_rustflags = config_rustflags.join(" ");
+        new_rustflags.push_str(&all_rustflags);
+        all_rustflags = new_rustflags;
+    }
 
     // Find important things in flags
     let target_cpu = {
@@ -402,7 +441,9 @@ pub fn kernel_lib_impl(_: proc_macro::TokenStream) -> proc_macro::TokenStream {
         const _: std::option::Option<&str> = std::option_env!(#target_rustflags);
         const _: std::option::Option<&str> = std::option_env!(#target_cargoflags);
 
+        #[doc(hidden)]
         static GPU_KERNEL_MODULE_DATA: &[u8] = std::include_bytes!(#kernel_path);
+        #[doc(hidden)]
         static GPU_KERNEL_MODULE: std::sync::LazyLock<::gpu_kernel::Module> = std::sync::LazyLock::new(|| ::gpu_kernel::Module::new(GPU_KERNEL_MODULE_DATA));
     };
     proc_macro::TokenStream::from(output)

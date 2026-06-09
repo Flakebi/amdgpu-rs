@@ -15,8 +15,14 @@ pub use gpu_kernel_proc_macros::{kernel, kernel_lib_impl};
 #[doc(hidden)]
 pub use hip_runtime_sys;
 
+#[cfg(any(target_arch = "amdgpu", target_arch = "nvptx64"))]
+pub mod prelude {
+    #[cfg(target_arch = "amdgpu")]
+    pub use amdgpu_device_libs::prelude::{print, println};
+}
+
 #[cfg(target_arch = "amdgpu")]
-pub use amdgpu_device_libs::*;
+pub use amdgpu_device_libs::{dispatch_ptr, intrinsics};
 
 #[macro_export]
 macro_rules! kernel_lib {
@@ -30,16 +36,10 @@ macro_rules! kernel_lib {
 }
 
 #[non_exhaustive]
-#[derive(Clone, Eq, Hash, PartialEq)]
+#[derive(Clone, Default, Eq, Hash, PartialEq)]
 pub struct LaunchConfig {
-    pub workgroups: [u32; 3],
-    pub threads_per_workgroup: [u32; 3],
-}
-
-#[derive(Default, Clone, Eq, Hash, PartialEq)]
-pub struct LaunchConfigBuilder {
-    workgroups: Option<[u32; 3]>,
-    threads_per_workgroup: Option<[u32; 3]>,
+    pub workgroups: Option<[u32; 3]>,
+    pub threads_per_workgroup: Option<[u32; 3]>,
 }
 
 #[cfg(all(
@@ -97,7 +97,6 @@ unsafe impl Send for Module {}
 unsafe impl Sync for Module {}
 
 #[cfg(not(any(target_arch = "amdgpu", target_arch = "nvptx64")))]
-#[doc(hidden)]
 pub struct Kernel {
     #[cfg(feature = "amd")]
     func: hip_runtime_sys::hipFunction_t,
@@ -107,13 +106,25 @@ unsafe impl Send for Kernel {}
 #[cfg(not(any(target_arch = "amdgpu", target_arch = "nvptx64")))]
 unsafe impl Sync for Kernel {}
 
-impl LaunchConfig {
-    pub fn new() -> LaunchConfigBuilder {
-        Default::default()
-    }
+#[cfg(all(
+    feature = "amd",
+    not(any(target_arch = "amdgpu", target_arch = "nvptx64"))
+))]
+struct HipStream(hip_runtime_sys::hipStream_t);
+
+#[cfg(all(
+    feature = "amd",
+    not(any(target_arch = "amdgpu", target_arch = "nvptx64"))
+))]
+thread_local! {
+    static STREAM: std::cell::RefCell<HipStream> = std::cell::RefCell::new(HipStream::new());
 }
 
-impl LaunchConfigBuilder {
+impl LaunchConfig {
+    pub fn new() -> Self {
+        Default::default()
+    }
+
     pub fn workgroups(&mut self, workgroups: [u32; 3]) -> &mut Self {
         self.workgroups = Some(workgroups);
         self
@@ -123,18 +134,42 @@ impl LaunchConfigBuilder {
         self.threads_per_workgroup = Some(threads_per_workgroup);
         self
     }
+}
 
-    /// Panics if a required field was not filled out
-    pub fn build(&mut self) -> LaunchConfig {
-        LaunchConfig {
-            workgroups: self
-                .workgroups
-                .expect("Must set `workgroups` before building LaunchConfig"),
-            threads_per_workgroup: self
-                .threads_per_workgroup
-                .expect("Must set `threads_per_workgroup` before building LaunchConfig"),
+#[cfg(all(
+    feature = "amd",
+    not(any(target_arch = "amdgpu", target_arch = "nvptx64"))
+))]
+impl HipStream {
+    fn new() -> Self {
+        unsafe {
+            let mut stream: hip_runtime_sys::hipStream_t = std::ptr::null_mut();
+            let result = hip_runtime_sys::hipStreamCreate(&mut stream);
+            assert_eq!(result, hipSuccess);
+            Self(stream)
         }
     }
+}
+
+#[cfg(all(
+    feature = "amd",
+    not(any(target_arch = "amdgpu", target_arch = "nvptx64"))
+))]
+impl Drop for HipStream {
+    fn drop(&mut self) {
+        unsafe {
+            let result = hip_runtime_sys::hipStreamDestroy(self.0);
+            assert_eq!(result, hipSuccess);
+        }
+    }
+}
+
+#[cfg(all(
+    feature = "amd",
+    not(any(target_arch = "amdgpu", target_arch = "nvptx64"))
+))]
+fn thread_local_stream() -> hip_runtime_sys::hipStream_t {
+    STREAM.with_borrow(|s| s.0)
 }
 
 #[cfg(not(any(target_arch = "amdgpu", target_arch = "nvptx64")))]
@@ -174,7 +209,12 @@ impl Module {
 
 #[cfg(not(any(target_arch = "amdgpu", target_arch = "nvptx64")))]
 impl Kernel {
-    pub fn launch<T: ?Sized>(&self, launch_config: LaunchConfig, args: &mut T) {
+    #[cfg(feature = "amd")]
+    pub fn func(&self) -> hip_runtime_sys::hipFunction_t {
+        self.func
+    }
+
+    pub unsafe fn launch_impl<T: ?Sized>(&self, launch_config: &LaunchConfig, args: &mut T) {
         #[cfg(feature = "amd")]
         {
             use std::ffi;
@@ -190,24 +230,32 @@ impl Kernel {
                 0x3 as *mut ffi::c_void,                          // End
             ];
 
+            let workgroups = launch_config
+                .workgroups
+                .expect("Must set `workgroups` in LaunchConfig");
+            let threads_per_workgroup = launch_config
+                .threads_per_workgroup
+                .expect("Must set `threads_per_workgroup` in LaunchConfig");
+
             unsafe {
+                let stream = thread_local_stream();
                 // Launch two workgroups (2x1x1), each of the size (LEN/2)x1x1
                 let result = hip_runtime_sys::hipModuleLaunchKernel(
                     self.func,
-                    launch_config.workgroups[0],
-                    launch_config.workgroups[1],
-                    launch_config.workgroups[2],
-                    launch_config.threads_per_workgroup[0],
-                    launch_config.threads_per_workgroup[1],
-                    launch_config.threads_per_workgroup[2],
+                    workgroups[0],
+                    workgroups[1],
+                    workgroups[2],
+                    threads_per_workgroup[0],
+                    threads_per_workgroup[1],
+                    threads_per_workgroup[2],
                     0,                    // sharedMemBytes for extern shared variables
-                    std::ptr::null_mut(), // stream
+                    stream,               // stream
                     std::ptr::null_mut(), // params (unimplemented in hip)
                     config.as_mut_ptr(),  // arguments
                 );
                 assert_eq!(result, hipSuccess, "Failed to launch kernel");
 
-                let result = hip_runtime_sys::hipDeviceSynchronize();
+                let result = hip_runtime_sys::hipStreamSynchronize(stream);
                 assert_eq!(result, hipSuccess, "Failed to wait for kernel to finish");
             }
         }
