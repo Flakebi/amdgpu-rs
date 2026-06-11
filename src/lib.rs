@@ -21,6 +21,7 @@ pub mod prelude {
     pub use amdgpu_device_libs::prelude::{print, println};
 }
 
+// TODO cfg(any(doc))
 #[cfg(target_arch = "amdgpu")]
 pub use amdgpu_device_libs::{dispatch_ptr, intrinsics};
 
@@ -34,6 +35,10 @@ macro_rules! kernel_lib {
         extern crate alloc;
     };
 }
+
+// hipCpuDeviceId
+#[cfg(not(any(target_arch = "amdgpu", target_arch = "nvptx64")))]
+const HIP_CPU_DEVICE_ID: std::ffi::c_int = -1;
 
 #[non_exhaustive]
 #[derive(Clone, Default, Eq, Hash, PartialEq)]
@@ -84,6 +89,27 @@ unsafe impl std::alloc::GlobalAlloc for AmdAllocator {
 ))]
 #[global_allocator]
 static HEAP: AmdAllocator = AmdAllocator;
+
+#[cfg(not(any(target_arch = "amdgpu", target_arch = "nvptx64")))]
+#[derive(Clone, Copy, Eq, Hash, PartialEq)]
+enum PrefetchType {
+    /// No prefetching.
+    Raw,
+    /// Prefetch to the GPU.
+    Prefetch,
+    /// Prefetch to the GPU and mark as incoherent/coarse grain.
+    PrefetchIncoherent,
+}
+
+/// Prefetch memory to the GPU.
+///
+/// Defaults to not preloading, see [`PrefetchMem::raw`].
+#[cfg(not(any(target_arch = "amdgpu", target_arch = "nvptx64")))]
+#[derive(Clone, Copy)]
+pub struct PrefetchMem<'a, T: ?Sized> {
+    inner: &'a T,
+    ty: PrefetchType,
+}
 
 #[cfg(not(any(target_arch = "amdgpu", target_arch = "nvptx64")))]
 #[doc(hidden)]
@@ -170,6 +196,205 @@ impl Drop for HipStream {
 ))]
 fn thread_local_stream() -> hip_runtime_sys::hipStream_t {
     STREAM.with_borrow(|s| s.0)
+}
+
+#[cfg(not(any(target_arch = "amdgpu", target_arch = "nvptx64")))]
+impl<'a, T: ?Sized> PrefetchMem<'a, T> {
+    // TODO Add hipHostRegister + hipHostGetDevicePointer to share (aligned) constant memory
+
+    /// Pass through reference unmodified.
+    ///
+    /// This is the default.
+    pub fn raw(inner: &'a T) -> Self {
+        Self {
+            inner,
+            ty: PrefetchType::Raw,
+        }
+    }
+
+    /// Use `prefetch_incoherent` for more performance if the CPU does not need coherent access to the memory while a kernel is running.
+    pub fn prefetch(inner: &'a T) -> Self {
+        Self {
+            inner,
+            ty: PrefetchType::Prefetch,
+        }
+    }
+
+    pub fn prefetch_incoherent(inner: &'a T) -> Self {
+        Self {
+            inner,
+            ty: PrefetchType::PrefetchIncoherent,
+        }
+    }
+
+    /// Must run on the same thread as the kernel using the memory is launched to be properly synchronized.
+    pub unsafe fn apply_async(&self) {
+        if self.ty == PrefetchType::Raw {
+            return;
+        }
+        #[cfg(feature = "amd")]
+        {
+            unsafe {
+                let stream = thread_local_stream();
+                let mut device = 0;
+                let result = hip_runtime_sys::hipGetDevice(&mut device as *mut _);
+                assert_eq!(result, hipSuccess);
+
+                let result = hip_runtime_sys::hipMemAdvise(
+                    self.inner as *const _ as *const _,
+                    std::mem::size_of_val(self.inner),
+                    hip_runtime_sys::hipMemoryAdvise::hipMemAdviseSetAccessedBy,
+                    device,
+                );
+                assert_eq!(result, hipSuccess);
+
+                let result = hip_runtime_sys::hipMemAdvise(
+                    self.inner as *const _ as *const _,
+                    std::mem::size_of_val(self.inner),
+                    hip_runtime_sys::hipMemoryAdvise::hipMemAdviseSetReadMostly,
+                    device,
+                );
+                assert_eq!(result, hipSuccess);
+
+                let result = hip_runtime_sys::hipMemAdvise(
+                    self.inner as *const _ as *const _,
+                    std::mem::size_of_val(self.inner),
+                    hip_runtime_sys::hipMemoryAdvise::hipMemAdviseSetPreferredLocation,
+                    device,
+                );
+                assert_eq!(result, hipSuccess);
+
+                if self.ty == PrefetchType::PrefetchIncoherent {
+                    let result = hip_runtime_sys::hipMemAdvise(
+                        self.inner as *const _ as *const _,
+                        std::mem::size_of_val(self.inner),
+                        hip_runtime_sys::hipMemoryAdvise::hipMemAdviseSetCoarseGrain,
+                        device,
+                    );
+                    assert_eq!(result, hipSuccess);
+                }
+
+                println!(
+                    "Prefetching {} bytes to device {device}",
+                    std::mem::size_of_val(self.inner)
+                );
+                let result = hip_runtime_sys::hipMemPrefetchAsync(
+                    self.inner as *const _ as *const _,
+                    std::mem::size_of_val(self.inner),
+                    device,
+                    stream,
+                );
+                assert_eq!(result, hipSuccess);
+            }
+        }
+    }
+
+    pub fn apply(&self) {
+        #[cfg(feature = "amd")]
+        {
+            unsafe {
+                self.apply_async();
+
+                let stream = thread_local_stream();
+                let result = hip_runtime_sys::hipStreamSynchronize(stream);
+                assert_eq!(result, hipSuccess, "Failed to wait for kernel to finish");
+            }
+        }
+    }
+
+    /// Prefetch back to the CPU if it was prefetched into GPU memory.
+    pub fn unapply(&self) {
+        if self.ty == PrefetchType::Raw {
+            return;
+        }
+        return;
+        #[cfg(feature = "amd")]
+        {
+            unsafe {
+                let stream = thread_local_stream();
+                let mut device = 0;
+                let result = hip_runtime_sys::hipGetDevice(&mut device as *mut _);
+                assert_eq!(result, hipSuccess);
+
+                let result = hip_runtime_sys::hipMemPrefetchAsync(
+                    self.inner as *const _ as *const _,
+                    std::mem::size_of_val(self.inner),
+                    HIP_CPU_DEVICE_ID,
+                    stream,
+                );
+                assert_eq!(result, hipSuccess);
+
+                let result = hip_runtime_sys::hipMemAdvise(
+                    self.inner as *const _ as *const _,
+                    std::mem::size_of_val(self.inner),
+                    hip_runtime_sys::hipMemoryAdvise::hipMemAdviseUnsetAccessedBy,
+                    device,
+                );
+                assert_eq!(result, hipSuccess);
+
+                if self.ty == PrefetchType::PrefetchIncoherent {
+                    let result = hip_runtime_sys::hipMemAdvise(
+                        self.inner as *const _ as *const _,
+                        std::mem::size_of_val(self.inner),
+                        hip_runtime_sys::hipMemoryAdvise::hipMemAdviseUnsetCoarseGrain,
+                        device,
+                    );
+                    assert_eq!(result, hipSuccess);
+                }
+
+                let result = hip_runtime_sys::hipStreamSynchronize(stream);
+                assert_eq!(result, hipSuccess, "Failed to wait for kernel to finish");
+            }
+        }
+    }
+}
+
+#[cfg(not(any(target_arch = "amdgpu", target_arch = "nvptx64")))]
+impl<'a, T> PrefetchMem<'a, [T]> {
+    pub unsafe fn copy(inner: &'a [T]) -> Self {
+        #[cfg(feature = "amd")]
+        {
+            unsafe {
+                use core::slice;
+
+                let size = std::mem::size_of_val(inner);
+                let mut mem = std::ptr::null_mut();
+                let result = hip_runtime_sys::hipMalloc(&mut mem, size);
+                assert_eq!(result, hipSuccess);
+
+                let result = hip_runtime_sys::hipMemcpy(
+                    mem,
+                    inner as *const _ as *const _,
+                    size,
+                    hip_runtime_sys::hipMemcpyKind::hipMemcpyHostToDevice,
+                );
+                assert_eq!(result, hipSuccess);
+
+                Self {
+                    inner: slice::from_raw_parts(mem as *const _, inner.len()),
+                    ty: PrefetchType::Raw,
+                }
+            }
+        }
+    }
+}
+
+#[cfg(not(any(target_arch = "amdgpu", target_arch = "nvptx64")))]
+impl<'a, T: ?Sized> std::ops::Deref for PrefetchMem<'a, T> {
+    type Target = T;
+    fn deref(&self) -> &Self::Target {
+        self.inner
+    }
+}
+
+#[cfg(not(any(target_arch = "amdgpu", target_arch = "nvptx64")))]
+impl<'a, T: ?Sized> From<&'a T> for PrefetchMem<'a, T> {
+    fn from(inner: &'a T) -> Self {
+        Self {
+            inner,
+            ty: PrefetchType::Raw,
+        }
+    }
 }
 
 #[cfg(not(any(target_arch = "amdgpu", target_arch = "nvptx64")))]
