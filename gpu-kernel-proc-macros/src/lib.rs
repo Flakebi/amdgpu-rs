@@ -5,7 +5,7 @@ use std::process::Command;
 use std::{env, fs};
 
 use quote::{format_ident, quote};
-use syn::{FnArg, ItemFn, Lifetime, Pat, Type, parse_macro_input};
+use syn::{FnArg, ItemFn, Pat, parse_macro_input};
 use toml::Table;
 use toml::map::Entry;
 use toml::value::Array;
@@ -49,21 +49,14 @@ pub fn kernel(
         "#[kernel] `{orig_ident}` cannot be variadic"
     );
 
-    // For the argument list, can contain impl Into
+    // For the argument list and struct def `type0`
     let mut input_tys = Vec::new();
     // For the struct initialization `arg0`
     let mut input_names = Vec::new();
-    // Names for the variables that save the alignment and size of each variable.
-    // Save them in extra variables as we are unable to re-query alignment after the value is moved.
-    let mut input_alignment_names = Vec::new();
-    let mut input_size_names = Vec::new();
-
-    // Arguments that were changed to impl Into<PrefetchMem> and need to be converted first
-    let mut input_into_names = Vec::new();
-    let mut input_into_orig_names = Vec::new();
 
     for (i, arg) in inputs.iter().enumerate() {
-        let mut name = format_ident!("_gpu_kernel_arg{i}");
+        let mut name = format_ident!("arg{i}");
+        let ty;
 
         match arg {
             FnArg::Receiver(_) => {
@@ -74,59 +67,15 @@ pub fn kernel(
                     arg.attrs.is_empty(),
                     "#[kernel] `{orig_ident}` arg `{name}` cannot have attributes"
                 );
-                assert!(
-                    !matches!(*arg.ty, Type::ImplTrait(_)),
-                    "#[kernel] `{orig_ident}` arg `{name}` cannot be of `impl Trait` type"
-                );
                 if let Pat::Ident(ident) = &*arg.pat {
                     name = ident.ident.clone();
                 }
-                if let Type::Reference(r) = &*arg.ty {
-                    assert!(
-                        r.mutability.is_none(),
-                        "#[kernel] `{orig_ident}` arg `{name}` cannot be a mutable reference"
-                    );
-                    assert!(
-                        !matches!(*r.elem, Type::ImplTrait(_)),
-                        "#[kernel] `{orig_ident}` arg `{name}` cannot be of `impl Trait` type"
-                    );
-                    // TODO Add lifetime to generics
-                    let lifetime = r
-                        .lifetime
-                        .clone()
-                        .unwrap_or_else(|| Lifetime::new("'_", r.and_token.span.clone()));
-                    let elem = &r.elem;
-                    input_tys.push(quote! { impl std::convert::Into<::gpu_kernel::PrefetchMem<#lifetime, #elem>> });
-                    input_into_names.push(format_ident!("_gpu_kernel_into_{name}"));
-                    input_into_orig_names.push(name.clone());
-                } else {
-                    let ty = &arg.ty;
-                    input_tys.push(quote! { #ty });
-                }
+                ty = arg.ty.clone();
             }
         }
-        input_alignment_names.push(format_ident!("_gpu_kernel_align_{name}"));
-        input_size_names.push(format_ident!("_gpu_kernel_size_{name}"));
+        input_tys.push(ty);
         input_names.push(name);
     }
-
-    // Convert impl Into arguments
-    let into = quote! {
-        #(
-            let #input_into_names = #input_into_orig_names.into();
-            unsafe {
-                #input_into_names.apply_async();
-            }
-            let mut #input_into_orig_names = std::ops::Deref::deref(&#input_into_names);
-        )*
-    };
-    let unapply = quote! {
-        unsafe {
-            #(
-                #input_into_names.unapply();
-            )*
-        }
-    };
 
     // Assemble arguments on the CPU
     let args;
@@ -146,11 +95,9 @@ pub fn kernel(
         args = quote! {
             let mut _gpu_kernel_size: usize = 0;
             #(
-                let #input_alignment_names = std::mem::align_of_val(&#input_names);
-                let #input_size_names = std::mem::size_of_val(&#input_names);
                 _gpu_kernel_size =
-                    _gpu_kernel_size.next_multiple_of(#input_alignment_names)
-                    + #input_size_names;
+                    _gpu_kernel_size.next_multiple_of(std::mem::align_of_val(&#input_names))
+                    + std::mem::size_of_val(&#input_names);
             )*
 
             let mut _gpu_kernel_args = std::vec::Vec::<std::mem::MaybeUninit<u8>>::new();
@@ -159,14 +106,15 @@ pub fn kernel(
             let mut _gpu_kernel_offset: usize = 0;
             #(
                 // Align
-                _gpu_kernel_offset = _gpu_kernel_offset.next_multiple_of(#input_alignment_names);
+                _gpu_kernel_offset = _gpu_kernel_offset
+                    .next_multiple_of(std::mem::align_of_val(&#input_names));
 
                 // Move value
                 unsafe {
                     std::ptr::write(_gpu_kernel_args.as_mut_ptr().add(_gpu_kernel_offset) as *mut _, #input_names);
                 }
 
-                _gpu_kernel_offset += #input_size_names;
+                _gpu_kernel_offset += std::mem::size_of_val(&#input_names);
             )*
 
             let _gpu_kernel_args = _gpu_kernel_args.as_mut_slice();
@@ -176,15 +124,14 @@ pub fn kernel(
             _gpu_kernel_offset = 0;
             #(
                 // Align
-                _gpu_kernel_offset = _gpu_kernel_offset.next_multiple_of(#input_alignment_names);
+                _gpu_kernel_offset = _gpu_kernel_offset.next_multiple_of(std::mem::align_of_val(&#input_names));
 
-                // Drop value (implicitly)
-                // We may be unable to name the type, so move back into original variable.
+                // Drop value
                 unsafe {
-                    #input_names = std::ptr::read(_gpu_kernel_args.as_ptr().add(_gpu_kernel_offset) as *const _);
+                    std::ptr::drop_in_place(_gpu_kernel_args.as_mut_ptr().add(_gpu_kernel_offset) as *mut #input_tys);
                 }
 
-                _gpu_kernel_offset += #input_size_names;
+                _gpu_kernel_offset += std::mem::size_of_val(&#input_names);
             )*
         };
     }
@@ -227,14 +174,12 @@ pub fn kernel(
 
         #[cfg(not(any(target_arch = "amdgpu", target_arch = "nvptx64")))]
         impl #kernel_struct_ident {
-            #vis #unsafety fn launch #generics(&self, gpu_kernel_launch_config: &::gpu_kernel::LaunchConfig, #(mut #input_names: #input_tys),*) {
-                #into
+            #vis #unsafety fn launch #generics(&self, gpu_kernel_launch_config: &::gpu_kernel::LaunchConfig, #(#input_names: #input_tys),*) {
                 #args
                 // Launch kernel
                 unsafe {
                     self.launch_impl(gpu_kernel_launch_config, _gpu_kernel_args);
                 }
-                #unapply
                 #drop
             }
         }
@@ -267,8 +212,7 @@ pub fn kernel_lib_impl(_: proc_macro::TokenStream) -> proc_macro::TokenStream {
     // Use CARGO_TARGET_DIR if set
     let target_dir = env::var("CARGO_TARGET_DIR")
         .map(PathBuf::from)
-        .unwrap_or_else(|_| manifest_dir.join("target"))
-        .join("gpu-kernel");
+        .unwrap_or_else(|_| manifest_dir.join("target"));
     let kernel_path = target_dir
         .join("amdgcn-amd-amdhsa")
         .join("release")
@@ -441,7 +385,7 @@ pub fn kernel_lib_impl(_: proc_macro::TokenStream) -> proc_macro::TokenStream {
     }
 
     // Write new Cargo.toml
-    let gpu_toml_dir = target_dir.clone();
+    let gpu_toml_dir = target_dir.join("gpu-kernel");
     fs::create_dir_all(&gpu_toml_dir).expect("Failed to create gpu-kernel target dir");
     let gpu_toml = gpu_toml_dir.join("Cargo.toml");
     fs::write(&gpu_toml, cargo_toml.to_string().as_bytes())
