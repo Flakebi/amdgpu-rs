@@ -21,6 +21,7 @@ pub mod prelude {
     pub use amdgpu_device_libs::prelude::{print, println};
 }
 
+// TODO cfg(any(doc))
 #[cfg(target_arch = "amdgpu")]
 pub use amdgpu_device_libs::{dispatch_ptr, intrinsics};
 
