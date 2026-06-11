@@ -28,7 +28,6 @@ fn main() {
     // TODO Document everything and add readmes
     // TODO Test on Ubuntu podman
     // TODO Add feature to amdgpu-device-libs-build to remove winnow and other dependencies?
-    // TODO Example that transfers memory to GPU before usage, expose as impl Into<DeviceMem<&T>>
     // TODO Test type that is not copy
 
     // Create two vectors a and b to add together
@@ -44,7 +43,7 @@ fn main() {
     c.resize(a.len(), 0);
 
     // We pass CPU pointers to the kernel, which works fine, though is potentially slow.
-    // hipMemoryAdvise can be used to improve this.
+    // See the vector_add_fast example for how to improve this.
     // Only heap variables are shared on dedicated AMD GPUs, so this cannot be constant slices.
 
     unsafe {

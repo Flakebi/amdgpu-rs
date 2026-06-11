@@ -1,4 +1,15 @@
 #![cfg_attr(any(target_arch = "amdgpu", target_arch = "nvptx64"), no_std)]
+// Allocators will potentially be stabilized before all the GPU necessary stuff.
+#![cfg_attr(
+    not(any(target_arch = "amdgpu", target_arch = "nvptx64")),
+    feature(allocator_api)
+)]
+
+#[cfg(all(
+    feature = "amd",
+    not(any(target_arch = "amdgpu", target_arch = "nvptx64"))
+))]
+use std::{alloc::AllocError, ptr::NonNull};
 
 #[cfg(all(
     feature = "amd",
@@ -43,40 +54,18 @@ pub struct LaunchConfig {
     pub threads_per_workgroup: Option<[u32; 3]>,
 }
 
+/// Allocate managed memory on AMD that lives on the CPU and is visible to the GPU as well.
+///
+/// On GPUs that support it (mostly MI cards), managed memory can be automatically transferred
+/// between CPU and GPU.
+/// See the [unified memory management] documentation.
+///
+/// [unified memory management]: https://rocm.docs.amd.com/projects/HIP/en/latest/how-to/hip_runtime_api/memory_management/unified_memory.html
 #[cfg(all(
-    feature = "amd-allocator",
+    feature = "amd",
     not(any(target_arch = "amdgpu", target_arch = "nvptx64"))
 ))]
-pub struct AmdAllocator;
-
-#[cfg(all(
-    feature = "amd-allocator",
-    not(any(target_arch = "amdgpu", target_arch = "nvptx64"))
-))]
-unsafe impl std::alloc::GlobalAlloc for AmdAllocator {
-    #[inline]
-    unsafe fn alloc(&self, layout: std::alloc::Layout) -> *mut u8 {
-        use std::ffi;
-        unsafe {
-            let mut ptr: *mut ffi::c_void = std::ptr::null_mut();
-            let result = hip_runtime_sys::hipMallocManaged(
-                &mut ptr,
-                layout.size(),
-                hip_runtime_sys::hipMemAttachGlobal,
-            );
-            assert_eq!(result, hipSuccess);
-            ptr as *mut _
-        }
-    }
-
-    #[inline]
-    unsafe fn dealloc(&self, ptr: *mut u8, _: std::alloc::Layout) {
-        unsafe {
-            let result = hip_runtime_sys::hipFree(ptr as *mut _);
-            assert_eq!(result, hipSuccess);
-        };
-    }
-}
+pub struct ManagedMemAlloc;
 
 /// Define global allocator.
 #[cfg(all(
@@ -84,7 +73,20 @@ unsafe impl std::alloc::GlobalAlloc for AmdAllocator {
     not(any(target_arch = "amdgpu", target_arch = "nvptx64"))
 ))]
 #[global_allocator]
-static HEAP: AmdAllocator = AmdAllocator;
+static HEAP: ManagedMemAlloc = ManagedMemAlloc;
+
+/// Allocate memory on the GPU, visible to the CPU as well.
+#[cfg(all(
+    feature = "amd",
+    not(any(target_arch = "amdgpu", target_arch = "nvptx64"))
+))]
+pub struct GpuAlloc;
+
+#[cfg(all(
+    feature = "amd",
+    not(any(target_arch = "amdgpu", target_arch = "nvptx64"))
+))]
+pub type GpuBox<T, A = GpuAlloc> = Box<T, A>;
 
 #[cfg(not(any(target_arch = "amdgpu", target_arch = "nvptx64")))]
 #[doc(hidden)]
@@ -134,6 +136,63 @@ impl LaunchConfig {
     pub fn threads_per_workgroup(&mut self, threads_per_workgroup: [u32; 3]) -> &mut Self {
         self.threads_per_workgroup = Some(threads_per_workgroup);
         self
+    }
+}
+
+#[cfg(all(
+    feature = "amd",
+    not(any(target_arch = "amdgpu", target_arch = "nvptx64"))
+))]
+unsafe impl std::alloc::GlobalAlloc for ManagedMemAlloc {
+    #[inline]
+    unsafe fn alloc(&self, layout: std::alloc::Layout) -> *mut u8 {
+        use std::ffi;
+        unsafe {
+            let mut ptr: *mut ffi::c_void = std::ptr::null_mut();
+            let result = hip_runtime_sys::hipMallocManaged(
+                &mut ptr,
+                layout.size(),
+                hip_runtime_sys::hipMemAttachGlobal,
+            );
+            assert_eq!(result, hipSuccess);
+            ptr as *mut _
+        }
+    }
+
+    #[inline]
+    unsafe fn dealloc(&self, ptr: *mut u8, _: std::alloc::Layout) {
+        unsafe {
+            let result = hip_runtime_sys::hipFree(ptr as *mut _);
+            assert_eq!(result, hipSuccess);
+        };
+    }
+}
+
+#[cfg(all(
+    feature = "amd",
+    not(any(target_arch = "amdgpu", target_arch = "nvptx64"))
+))]
+unsafe impl std::alloc::Allocator for GpuAlloc {
+    #[inline]
+    fn allocate(&self, layout: std::alloc::Layout) -> Result<NonNull<[u8]>, AllocError> {
+        use std::ffi;
+        unsafe {
+            let mut ptr: *mut ffi::c_void = std::ptr::null_mut();
+            let result = hip_runtime_sys::hipMalloc(&mut ptr, layout.size());
+            assert_eq!(result, hipSuccess);
+            Ok(NonNull::slice_from_raw_parts(
+                NonNull::new(ptr as *mut _).ok_or(AllocError)?,
+                layout.size(),
+            ))
+        }
+    }
+
+    #[inline]
+    unsafe fn deallocate(&self, ptr: NonNull<u8>, _: std::alloc::Layout) {
+        unsafe {
+            let result = hip_runtime_sys::hipFree(ptr.as_ptr() as *mut _);
+            assert_eq!(result, hipSuccess);
+        };
     }
 }
 
