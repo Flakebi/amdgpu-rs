@@ -1,5 +1,4 @@
-#![cfg_attr(feature = "gpu", no_std)]
-#![cfg_attr(feature = "gpu", feature(abi_gpu_kernel))]
+#![cfg_attr(feature = "gpu", no_std, feature(abi_gpu_kernel))]
 
 use gpu_kernel::kernel;
 
@@ -7,8 +6,7 @@ gpu_kernel::kernel_lib!();
 
 /// This kernel adds numbers from two slices and writes the result into a third.
 #[kernel]
-#[allow(improper_ctypes_definitions, improper_gpu_kernel_arg)]
-pub unsafe fn kernel(a: &[u32], b: &[u32], c: *mut u32) {
+fn kernel(a: &[u32], b: &[u32], c: *mut u32) {
     use gpu_kernel::intrinsics::workitem_id_x;
 
     let id = workitem_id_x() as usize;
@@ -28,7 +26,7 @@ fn main() {
     // TODO Document everything and add readmes
     // TODO Test on Ubuntu podman
     // TODO Add feature to amdgpu-device-libs-build to remove winnow and other dependencies?
-    // TODO Test type that is not copy
+    // TODO safe abstraction for output ptr like cuda-oxide?
 
     // Create two vectors a and b to add together
     let mut a = Vec::new();
@@ -46,16 +44,14 @@ fn main() {
     // See the vector_add_fast example for how to improve this.
     // Only heap variables are shared on dedicated AMD GPUs, so this cannot be constant slices.
 
-    unsafe {
-        kernel.launch(
-            LaunchConfig::new()
-                .threads_per_workgroup([a.len() as u32, 1, 1])
-                .workgroups([1, 1, 1]),
-            &a,
-            &b,
-            c.as_mut_ptr(),
-        );
-    }
+    kernel.launch(
+        LaunchConfig::new()
+            .threads_per_workgroup([a.len() as u32, 1, 1])
+            .workgroups([1, 1, 1]),
+        &a,
+        &b,
+        c.as_mut_ptr(),
+    );
 
     println!("Result: {c:?}");
 }

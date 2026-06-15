@@ -5,7 +5,7 @@ use std::process::Command;
 use std::{env, fs};
 
 use quote::{format_ident, quote};
-use syn::{FnArg, ItemFn, Pat, Type, parse_macro_input};
+use syn::{FnArg, Generics, ItemFn, Lifetime, Pat, Type, parse_macro_input};
 use toml::Table;
 use toml::map::Entry;
 use toml::value::Array;
@@ -29,15 +29,12 @@ pub fn kernel(
     let kernel_struct_ident = format_ident!("GpuKernel_{}", orig_ident);
     let inputs = func.sig.inputs;
     let generics = func.sig.generics;
+    let where_clause = &generics.where_clause;
     let output = func.sig.output;
 
     assert!(
         func.sig.asyncness.is_none(),
         "#[kernel] `{orig_ident}` cannot be async",
-    );
-    assert!(
-        func.sig.unsafety.is_some(),
-        "#[kernel] `{orig_ident}` must be unsafe because not all arguments are guaranteed to be safe. See the `kernel` documentation.",
     );
     // TODO Forbid only type generics but allow lifetimes
     /*assert!(
@@ -57,6 +54,8 @@ pub fn kernel(
     // Save them in extra variables as we are unable to re-query alignment after the value is moved.
     let mut input_alignment_names = Vec::new();
     let mut input_size_names = Vec::new();
+
+    let mut extra_lifetimes = Vec::new();
 
     for (i, arg) in inputs.iter().enumerate() {
         let mut name = format_ident!("_gpu_kernel_arg{i}");
@@ -87,13 +86,69 @@ pub fn kernel(
                         "#[kernel] `{orig_ident}` arg `{name}` cannot be of `impl Trait` type"
                     );
                 }
-                input_tys.push(arg.ty.clone());
+                if unsafety.is_some() {
+                    let ty = &arg.ty;
+                    input_tys.push(quote! { #ty });
+                } else {
+                    let ty = if let Type::Reference(r) = &*arg.ty {
+                        let and = &r.and_token;
+                        let lifetime = if let Some(lifetime) = &r.lifetime {
+                            quote! { #lifetime }
+                        } else {
+                            let ident = format_ident!("_gpu_kernel_lifetime_{}", name);
+                            let lifetime = Lifetime::new(&format!("'{}", ident), ident.span());
+                            extra_lifetimes.push(lifetime.clone());
+                            quote! { #lifetime }
+                        };
+                        let elem = &r.elem;
+                        quote! { #and #lifetime #elem }
+                    } else {
+                        let ty = &arg.ty;
+                        quote! { #ty }
+                    };
+
+                    input_tys.push(quote! { impl ::gpu_kernel::SafeKernelArg<Output = #ty> });
+                }
             }
         }
         input_alignment_names.push(format_ident!("_gpu_kernel_align_{name}"));
         input_size_names.push(format_ident!("_gpu_kernel_size_{name}"));
         input_names.push(name);
     }
+
+    let cpu_generics = if generics.lt_token.is_some() {
+        if extra_lifetimes.is_empty() {
+            quote! { #generics }
+        } else {
+            let Generics {
+                lt_token,
+                params,
+                gt_token,
+                ..
+            } = &generics;
+            quote! { #lt_token #(#extra_lifetimes),*, #params #gt_token }
+        }
+    } else {
+        quote! { <#(#extra_lifetimes),*> }
+    };
+
+    let require_safe = if unsafety.is_some() {
+        quote!()
+    } else {
+        // The kernel is not marked as unsafe, so all arguments must implement SafeKernelArg
+        quote!(
+            #(
+                let mut #input_names = <_ as ::gpu_kernel::SafeKernelArg>::into_kernel_arg(#input_names);
+            )*
+        )
+    };
+
+    let safe_attrs = if unsafety.is_some() {
+        quote!()
+    } else {
+        // Apply known safe attrs
+        quote! { #[allow(improper_ctypes_definitions, improper_gpu_kernel_arg)] }
+    };
 
     // Assemble arguments on the CPU
     let args;
@@ -167,7 +222,8 @@ pub fn kernel(
         #[cfg(any(target_arch = "amdgpu", target_arch = "nvptx64"))]
         #[unsafe(no_mangle)]
         #(#attrs)*
-        #vis #unsafety extern "gpu-kernel" fn #kernel_ident #generics(#inputs) #output
+        #safe_attrs
+        #vis #unsafety extern "gpu-kernel" fn #kernel_ident #generics(#inputs) #where_clause #output
             #code
 
         // CPU code
@@ -194,7 +250,8 @@ pub fn kernel(
 
         #[cfg(not(any(target_arch = "amdgpu", target_arch = "nvptx64")))]
         impl #kernel_struct_ident {
-            #vis #unsafety fn launch #generics(&self, gpu_kernel_launch_config: &::gpu_kernel::LaunchConfig, #(mut #input_names: #input_tys),*) {
+            #vis #unsafety fn launch #cpu_generics(&self, gpu_kernel_launch_config: &::gpu_kernel::LaunchConfig, #(mut #input_names: #input_tys),*) #where_clause {
+                #require_safe
                 #args
                 // Launch kernel
                 unsafe {
@@ -241,6 +298,7 @@ pub fn kernel_lib_impl(_: proc_macro::TokenStream) -> proc_macro::TokenStream {
 
     let env_rustflags = env::var(&target_rustflags).unwrap_or_default();
     // Custom setting, defaults to --release
+    // TODO Default to debug or release mode?
     let cargoflags = env::var(&target_cargoflags).unwrap_or_else(|_| "--release".into());
 
     // Get rustflags from env and .cargo/config.toml

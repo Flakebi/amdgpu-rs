@@ -1,7 +1,6 @@
 //! Similar to the vector_add example, but copies a larger vector and has more of a focus on performance.
 //! Mostly to show off/test performance features.
-#![cfg_attr(feature = "gpu", no_std)]
-#![cfg_attr(feature = "gpu", feature(abi_gpu_kernel))]
+#![cfg_attr(feature = "gpu", no_std, feature(abi_gpu_kernel))]
 #![cfg_attr(not(feature = "gpu"), feature(clone_from_ref))]
 
 use gpu_kernel::kernel;
@@ -10,8 +9,7 @@ gpu_kernel::kernel_lib!();
 
 /// This kernel adds numbers from two slices and writes the result into a third.
 #[kernel]
-#[allow(improper_ctypes_definitions, improper_gpu_kernel_arg)]
-pub unsafe fn kernel(a: &[u32], b: &[u32], c: *mut u32) {
+pub fn kernel(a: &[u32], b: &[u32], c: *mut u32) {
     use gpu_kernel::intrinsics::{workgroup_id_x, workitem_id_x};
 
     // Compute own, global id
@@ -52,16 +50,14 @@ fn main() {
     // Creating it on the GPU would look like this:
     // let mut c_gpu = GpuBox::new_uninit_slice_in(a.len(), GpuAlloc);
 
-    unsafe {
-        kernel.launch(
-            LaunchConfig::new()
-                .threads_per_workgroup([32, 1, 1])
-                .workgroups([(a.len() / 32) as u32, 1, 1]),
-            &a,
-            &b,
-            c_gpu.as_mut_ptr() as *mut _,
-        );
-    }
+    kernel.launch(
+        LaunchConfig::new()
+            .threads_per_workgroup([32, 1, 1])
+            .workgroups([(a.len() / 32) as u32, 1, 1]),
+        &a,
+        &b,
+        c_gpu.as_mut_ptr() as *mut _,
+    );
 
     let c_gpu = unsafe { c_gpu.assume_init() };
 

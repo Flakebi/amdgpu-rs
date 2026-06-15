@@ -7,13 +7,10 @@ fn main() {
     // so create the string on the heap
     let s = "World".to_string();
 
-    unsafe {
-        kernel(
-            LaunchConfig::new()
-                .threads_per_workgroup([10, 1, 1])
-                .workgroups([1, 1, 1])
-                .build(),
-            &s,
-        );
-    }
+    kernel.launch(
+        LaunchConfig::new()
+            .threads_per_workgroup([10, 1, 1])
+            .workgroups([1, 1, 1]),
+        &s,
+    );
 }
