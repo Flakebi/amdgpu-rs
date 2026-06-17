@@ -4,13 +4,11 @@ version = 4
 
 [[package]]
 name = "amdgpu-device-libs"
-version = "0.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "efa23e7457aa0a1f5b339b627f7141e8d8af0d467ea63032c60f74f0a44f02cf"
+version = "0.2.0"
 
 [[package]]
 name = "amdgpu-device-libs-build"
-version = "0.1.0"
+version = "0.2.0"
 
 [[package]]
 name = "equivalent"

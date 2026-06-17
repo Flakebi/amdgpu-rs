@@ -175,7 +175,7 @@ unsafe impl<'a, T: SafeKernelArg> SafeKernelArg for &'a mut Vec<T> {
 #[cfg(any(target_arch = "amdgpu", target_arch = "nvptx64"))]
 fn thread_id() -> usize {
     use crate::intrinsics::*;
-    let dispatch = crate::dispatch_ptr();
+    let dispatch = crate::intrinsics::dispatch_ptr();
 
     // Compute size as ((z * dimY) + y) * dimX + x
     let mut id =

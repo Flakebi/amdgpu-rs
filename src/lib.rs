@@ -42,7 +42,13 @@ pub mod prelude {
 
 // TODO cfg(any(doc))
 #[cfg(any(doc, target_arch = "amdgpu"))]
-pub use amdgpu_device_libs::{dispatch_ptr, intrinsics};
+pub mod intrinsics {
+    pub use amdgpu_device_libs::dispatch_ptr;
+    pub use amdgpu_device_libs::prelude::{
+        s_barrier, workgroup_id_x, workgroup_id_y, workgroup_id_z, workitem_id_x, workitem_id_y,
+        workitem_id_z,
+    };
+}
 
 #[macro_export]
 macro_rules! kernel_lib {
