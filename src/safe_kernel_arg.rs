@@ -1,3 +1,5 @@
+use core::marker::PhantomData;
+
 #[cfg(not(any(target_arch = "amdgpu", target_arch = "nvptx64")))]
 use crate::{GpuBox, LaunchConfig};
 
@@ -36,8 +38,9 @@ pub unsafe trait SafeKernelArg {
 /// kernel panics.
 // Needs repr transparent to be passed as a pointer. Structs would be passed by reference.
 #[repr(transparent)]
-pub struct ThreadIndexedVec<T> {
+pub struct ThreadIndexedVec<'a, T> {
     ptr: *mut T,
+    phantom: PhantomData<&'a mut T>,
 }
 
 #[cfg(not(any(target_arch = "amdgpu", target_arch = "nvptx64")))]
@@ -141,9 +144,9 @@ unsafe impl<'a, T: SafeKernelArg> SafeKernelArg for &'a std::sync::Arc<T> {
     not(any(target_arch = "amdgpu", target_arch = "nvptx64"))
 ))]
 unsafe impl<'a, T: SafeKernelArg> SafeKernelArg for &'a mut Vec<T> {
-    type Output = ThreadIndexedVec<T>;
+    type Output = ThreadIndexedVec<'a, T>;
 
-    fn into_kernel_arg(self, launch_config: &LaunchConfig) -> ThreadIndexedVec<T> {
+    fn into_kernel_arg(self, launch_config: &LaunchConfig) -> ThreadIndexedVec<'a, T> {
         // assert that vector is long enough for launched threads
         let launch_size = launch_config
             .threads_per_workgroup
@@ -164,6 +167,7 @@ unsafe impl<'a, T: SafeKernelArg> SafeKernelArg for &'a mut Vec<T> {
         );
         ThreadIndexedVec {
             ptr: self.as_mut_ptr(),
+            phantom: PhantomData,
         }
     }
 }
@@ -183,9 +187,23 @@ fn thread_id() -> usize {
     id
 }
 
-impl<T> ThreadIndexedVec<T> {
+impl<'a, T> ThreadIndexedVec<'a, T> {
+    /// Constructs a `ThreadIndexedVec` from a raw base pointer.
+    ///
+    /// # Safety
+    ///
+    /// - `ptr` must point to at least number of GPU threads consecutive properly initialized values of type T.
+    /// - No constant or mutable reference to the data must exist for the lifetime of this struct.
     pub unsafe fn from_ptr(ptr: *mut T) -> Self {
-        Self { ptr }
+        Self {
+            ptr,
+            phantom: PhantomData,
+        }
+    }
+
+    /// Returns the base pointer of the wrapped `Vec`.
+    pub fn as_mut_base_ptr(&mut self) -> *mut T {
+        self.ptr
     }
 
     #[cfg(any(target_arch = "amdgpu", target_arch = "nvptx64"))]

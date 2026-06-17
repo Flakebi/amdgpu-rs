@@ -97,4 +97,8 @@ TODO Table
   - CARGO_TARGET_AMDGCN_AMD_AMDHSA_FLAGS: Flags appended to the cargo invocation
 - Config files (.cargo/config.toml as described in the [setup](#setup) section)
 
+TODO Examples
+
+TODO amdgpu-device-libs
+
 TODO License

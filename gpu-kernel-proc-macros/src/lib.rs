@@ -5,10 +5,71 @@ use std::process::Command;
 use std::{env, fs};
 
 use quote::{format_ident, quote};
-use syn::{FnArg, Generics, ItemFn, Lifetime, Pat, Type, parse_macro_input};
+use syn::{
+    FnArg, GenericArgument, Generics, Ident, ItemFn, Lifetime, Pat, PathArguments, Type,
+    parse_macro_input,
+};
 use toml::Table;
 use toml::map::Entry;
 use toml::value::Array;
+
+/// If the given `lifetime` is `None` or '_, create a named lifetime, otherwise return `None`.
+fn to_explicit_lifetimes(
+    lifetime: Option<&Lifetime>,
+    name: &Ident,
+    i: u32,
+    extra_lifetimes: &mut Vec<Lifetime>,
+) -> Option<Lifetime> {
+    if let Some(lifetime) = lifetime {
+        if lifetime.ident != "_" {
+            return None;
+        }
+    }
+
+    // Create a new lifetime
+    let ident = format_ident!("_gpu_kernel_lifetime_{}_{}", name, i);
+    let lifetime = Lifetime::new(&format!("'{}", ident), ident.span());
+    extra_lifetimes.push(lifetime.clone());
+    Some(lifetime)
+}
+
+/// Replace all anonymous lifetimes '_ with named ones.
+/// Used as impl trait does not allow anonymous lifetimes.
+fn type_with_explicit_lifetimes(
+    ty: &Type,
+    name: &Ident,
+    i: u32,
+    extra_lifetimes: &mut Vec<Lifetime>,
+) -> proc_macro2::TokenStream {
+    if let Type::Reference(r) = ty {
+        let and = &r.and_token;
+        let lifetime = to_explicit_lifetimes(r.lifetime.as_ref(), name, i, extra_lifetimes)
+            .or_else(|| r.lifetime.clone());
+        let elem = type_with_explicit_lifetimes(&r.elem, name, i, extra_lifetimes);
+        quote! { #and #lifetime #elem }
+    } else if let Type::Path(p) = ty {
+        let mut p = p.clone();
+        if let PathArguments::AngleBracketed(args) = &mut p
+            .path
+            .segments
+            .last_mut()
+            .expect("Unexpected type without last path segment")
+            .arguments
+        {
+            for a in args.args.iter_mut() {
+                if let GenericArgument::Lifetime(lifetime) = a {
+                    if let Some(l) = to_explicit_lifetimes(Some(lifetime), name, i, extra_lifetimes)
+                    {
+                        *lifetime = l;
+                    }
+                }
+            }
+        }
+        quote! { #p }
+    } else {
+        quote! { #ty }
+    }
+}
 
 // TODO Document more
 /// mutable arguments are forbidden,
@@ -90,23 +151,7 @@ pub fn kernel(
                     let ty = &arg.ty;
                     input_tys.push(quote! { #ty });
                 } else {
-                    let ty = if let Type::Reference(r) = &*arg.ty {
-                        let and = &r.and_token;
-                        let lifetime = if let Some(lifetime) = &r.lifetime {
-                            quote! { #lifetime }
-                        } else {
-                            let ident = format_ident!("_gpu_kernel_lifetime_{}", name);
-                            let lifetime = Lifetime::new(&format!("'{}", ident), ident.span());
-                            extra_lifetimes.push(lifetime.clone());
-                            quote! { #lifetime }
-                        };
-                        let elem = &r.elem;
-                        quote! { #and #lifetime #elem }
-                    } else {
-                        let ty = &arg.ty;
-                        quote! { #ty }
-                    };
-
+                    let ty = type_with_explicit_lifetimes(&arg.ty, &name, 0, &mut extra_lifetimes);
                     input_tys.push(quote! { impl ::gpu_kernel::SafeKernelArg<Output = #ty> });
                 }
             }

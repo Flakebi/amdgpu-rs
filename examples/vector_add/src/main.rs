@@ -6,7 +6,7 @@ gpu_kernel::kernel_lib!();
 
 /// This kernel adds numbers from two slices and writes the result into a third.
 #[kernel]
-fn kernel(a: &[u32], b: &[u32], mut c: ThreadIndexedVec<u32>) {
+fn kernel(a: &[u32], b: &[u32], mut c: ThreadIndexedVec<'_, u32>) {
     use gpu_kernel::intrinsics::workitem_id_x;
 
     let id = workitem_id_x() as usize;
