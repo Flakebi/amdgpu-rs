@@ -80,17 +80,21 @@ Contributions for other Rust GPU backends are welcome, adding support to `gpu-ke
    # If rocminfo shows xnack- for your GPU, add "-Ctarget-feature=-xnack-support"
    ```
    Alternatively, specify the version through an environment variable: `CARGO_TARGET_AMDGCN_AMD_AMDHSA_RUSTFLAGS=-Ctarget-cpu=gfx<your version>`
-1. Set `HIP_PATH=/usr` and `ROCM_PATH=/usr/lib/llvm-21/lib/clang/21` (TODO Get rid of this?)
+1. Set `HIP_PATH=/usr` for `hip-runtime-sys` to find the hip headers
 
-TODO Make it work
-On NixOS, add `rocmPackages.clr` to your dev shell or set `HIP_DEVICE_LIB_PATH="${}"`.
+On NixOS, skip step 4 and add `rocmPackages.clr` to your dev shell or alternatively set `HIP_DEVICE_LIB_PATH="${rocmPackages.rocm-device-libs}/amdgcn/bitcode"` and `HIP_PATH="${rocmPackages.clr}"`.
 
 ## Settings
 
+A couple of environment variables can be set
+
+TODO Table
 - Env variables with defaults
   - HIP_PATH
-  - ROCM_PATH
-  - ROCM_DEVICE_LIB_PATH It looks for `amdgcn/bitcode/*.bc` files in this path.
+  - HIP_DEVICE_LIB_PATH It ends with `amdgcn/bitcode` and contains `.bc` files.
+    - Default: `hipconfig -l`, appending `../lib/clang/*/amdgcn/bitcode`
   - CARGO_TARGET_AMDGCN_AMD_AMDHSA_RUSTFLAGS
-  - CARGO_TARGET_AMDGCN_AMD_AMDHSA_FLAGS
-- Config files (.cargo/config.toml)
+  - CARGO_TARGET_AMDGCN_AMD_AMDHSA_FLAGS: Flags appended to the cargo invocation
+- Config files (.cargo/config.toml as described in the [setup](#setup) section)
+
+TODO License

@@ -11,9 +11,6 @@ checksum = "efa23e7457aa0a1f5b339b627f7141e8d8af0d467ea63032c60f74f0a44f02cf"
 [[package]]
 name = "amdgpu-device-libs-build"
 version = "0.1.0"
-dependencies = [
- "rustflags",
-]
 
 [[package]]
 name = "equivalent"
@@ -95,12 +92,6 @@ checksum = "41f2619966050689382d2b44f664f4bc593e129785a36d6ee376ddf37259b924"
 dependencies = [
  "proc-macro2",
 ]
-
-[[package]]
-name = "rustflags"
-version = "0.1.7"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a39e0e9135d7a7208ee80aa4e3e4b88f0f5ad7be92153ed70686c38a03db2e63"
 
 [[package]]
 name = "serde_core"
