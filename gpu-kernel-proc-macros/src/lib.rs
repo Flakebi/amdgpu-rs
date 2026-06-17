@@ -138,7 +138,7 @@ pub fn kernel(
         // The kernel is not marked as unsafe, so all arguments must implement SafeKernelArg
         quote!(
             #(
-                let mut #input_names = <_ as ::gpu_kernel::SafeKernelArg>::into_kernel_arg(#input_names);
+                let mut #input_names = <_ as ::gpu_kernel::SafeKernelArg>::into_kernel_arg(#input_names, &gpu_kernel_launch_config);
             )*
         )
     };
@@ -265,44 +265,24 @@ pub fn kernel(
     proc_macro::TokenStream::from(output)
 }
 
-// TODO Split into smaller functions
 #[proc_macro]
-pub fn kernel_lib_impl(_: proc_macro::TokenStream) -> proc_macro::TokenStream {
-    let target = {
-        #[cfg(feature = "amd")]
-        "amdgcn-amd-amdhsa"
-    };
-    let target_env = target.replace('-', "_").to_uppercase();
-    let target_rustflags = format!("CARGO_TARGET_{target_env}_RUSTFLAGS");
-    let target_cargoflags = format!("CARGO_TARGET_{target_env}_FLAGS");
+pub fn kernel_lib_impl_dbg(tokens: proc_macro::TokenStream) -> proc_macro::TokenStream {
+    kernel_lib_impl(tokens, true)
+}
 
-    // Compile gpu crate here
-    let crate_name = env::var("CARGO_CRATE_NAME").expect("$CARGO_CRATE_NAME must be set");
-    let kernel_file = format!("{crate_name}.elf");
-    let manifest_dir =
-        PathBuf::from(env::var("CARGO_MANIFEST_DIR").expect("$CARGO_MANIFEST_DIR must be set"))
-            .canonicalize()
-            .expect("Failed to resolve $CARGO_MANIFEST_DIR");
-    let manifest_path =
-        PathBuf::from(env::var("CARGO_MANIFEST_PATH").expect("$CARGO_MANIFEST_PATH must be set"));
-    let lock_path = manifest_dir.join("Cargo.lock");
-    // Use CARGO_TARGET_DIR if set
-    let target_dir = env::var("CARGO_TARGET_DIR")
-        .map(PathBuf::from)
-        .unwrap_or_else(|_| manifest_dir.join("target"))
-        .join("gpu-kernel");
-    let kernel_path = target_dir
-        .join("amdgcn-amd-amdhsa")
-        .join("release")
-        .join(&kernel_file);
+#[proc_macro]
+pub fn kernel_lib_impl_rel(tokens: proc_macro::TokenStream) -> proc_macro::TokenStream {
+    kernel_lib_impl(tokens, false)
+}
 
-    let env_rustflags = env::var(&target_rustflags).unwrap_or_default();
-    // Custom setting, defaults to --release
-    // TODO Default to debug or release mode?
-    let cargoflags = env::var(&target_cargoflags).unwrap_or_else(|_| "--release".into());
+struct NewCargoToml {
+    cargo_toml: String,
+    has_gpu_feature: bool,
+}
 
-    // Get rustflags from env and .cargo/config.toml
-    let mut all_rustflags = env_rustflags.clone();
+/// Get RUSTFLAGS from env and cargo configs
+fn get_rustflags(env_rustflags: &str, manifest_dir: &Path, target: &str) -> String {
+    let mut all_rustflags = env_rustflags.to_string();
     for path in manifest_dir
         .ancestors()
         .map(|p| p.join(".cargo"))
@@ -347,44 +327,20 @@ pub fn kernel_lib_impl(_: proc_macro::TokenStream) -> proc_macro::TokenStream {
             } else {
                 Vec::new()
             };
+        // Prepend
         let mut new_rustflags = config_rustflags.join(" ");
         new_rustflags.push_str(&all_rustflags);
         all_rustflags = new_rustflags;
     }
+    all_rustflags
+}
 
-    // Find important things in flags
-    let target_cpu = {
-        let i = all_rustflags.rfind("target-cpu").unwrap_or_else(|| panic!("Did not find target-cpu, make sure to set `-Ctarget-cpu=...` in ${target_rustflags}"));
-        let start = i + "target-cpu".len() + 1;
-        let end = all_rustflags[start..]
-            .find(' ')
-            .map(|i| start + i)
-            .unwrap_or(all_rustflags.len());
-        &all_rustflags[start..end]
-    };
-    // Enabled and not disabled or enabling comes later than disabling
-    let is_wave64_enabled = all_rustflags
-        .rfind("+wavefrontsize64")
-        .map(|i| {
-            if let Some(j) = all_rustflags.rfind("-wavefrontsize64") {
-                i > j
-            } else {
-                true
-            }
-        })
-        .unwrap_or_default();
-
-    let link_args =
-        amdgpu_device_libs_build::get_link_args(is_wave64_enabled, &target_cpu).link_args;
-    let new_rustflags = link_args
-        .iter()
-        .map(|v| format!("-Clink-arg={v}"))
-        .collect::<Vec<_>>();
-
-    // Copy Cargo.toml, insert lib.path = main.rs if lib does not exist, set lib.crate-type = cdylib
-    let cargo_toml = fs::read_to_string(&manifest_path)
-        .unwrap_or_else(|e| panic!("Failed to read {}: {e}", manifest_path.display()));
-    let mut cargo_toml = cargo_toml
+/// Modify Cargo.toml:
+/// - Insert lib.path = main.rs if lib does not exist
+/// - Set lib.crate-type = cdylib
+/// - Fixup path dependencies
+fn create_cargo_toml(manifest_path: &Path, manifest_dir: &Path, orig: &str) -> NewCargoToml {
+    let mut cargo_toml = orig
         .parse::<Table>()
         .unwrap_or_else(|e| panic!("Failed to parse {}: {e}", manifest_path.display()));
     let has_gpu_feature = cargo_toml
@@ -462,13 +418,91 @@ pub fn kernel_lib_impl(_: proc_macro::TokenStream) -> proc_macro::TokenStream {
             fix_all_deps(v.as_table_mut().expect("target must contain toml tables"));
         }
     }
+    NewCargoToml {
+        cargo_toml: cargo_toml.to_string(),
+        has_gpu_feature,
+    }
+}
+
+fn kernel_lib_impl(_: proc_macro::TokenStream, debug: bool) -> proc_macro::TokenStream {
+    let target = {
+        #[cfg(feature = "amd")]
+        "amdgcn-amd-amdhsa"
+    };
+    let target_env = target.replace('-', "_").to_uppercase();
+    let target_rustflags = format!("CARGO_TARGET_{target_env}_RUSTFLAGS");
+    let target_cargoflags = format!("CARGO_TARGET_{target_env}_FLAGS");
+
+    // Compile gpu crate here
+    let crate_name = env::var("CARGO_CRATE_NAME").expect("$CARGO_CRATE_NAME must be set");
+    let kernel_file = format!("{crate_name}.elf");
+    let manifest_dir =
+        PathBuf::from(env::var("CARGO_MANIFEST_DIR").expect("$CARGO_MANIFEST_DIR must be set"))
+            .canonicalize()
+            .expect("Failed to resolve $CARGO_MANIFEST_DIR");
+    let manifest_path =
+        PathBuf::from(env::var("CARGO_MANIFEST_PATH").expect("$CARGO_MANIFEST_PATH must be set"));
+    let lock_path = manifest_dir.join("Cargo.lock");
+    // Use CARGO_TARGET_DIR if set
+    let target_dir = env::var("CARGO_TARGET_DIR")
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| manifest_dir.join("target"))
+        .join("gpu-kernel");
+    let kernel_path = target_dir
+        .join(target)
+        .join(if debug { "debug" } else { "release" })
+        .join(&kernel_file);
+
+    let env_rustflags = env::var(&target_rustflags).unwrap_or_default();
+    // Custom setting
+    let cargoflags = env::var(&target_cargoflags).unwrap_or_default();
+    let cargoflags = cargoflags.trim();
+
+    let all_rustflags = get_rustflags(&env_rustflags, &manifest_dir, target);
+
+    // Find important things in flags
+    let target_cpu = {
+        let i = all_rustflags.rfind("target-cpu").unwrap_or_else(|| panic!("Did not find target-cpu, make sure to set `-Ctarget-cpu=...` in ${target_rustflags}"));
+        let start = i + "target-cpu".len() + 1;
+        let end = all_rustflags[start..]
+            .find(' ')
+            .map(|i| start + i)
+            .unwrap_or(all_rustflags.len());
+        &all_rustflags[start..end]
+    };
+    // Enabled and not disabled or enabling comes later than disabling
+    let is_wave64_enabled = all_rustflags
+        .rfind("+wavefrontsize64")
+        .map(|i| {
+            if let Some(j) = all_rustflags.rfind("-wavefrontsize64") {
+                i > j
+            } else {
+                true
+            }
+        })
+        .unwrap_or_default();
+
+    let link_args =
+        amdgpu_device_libs_build::get_link_args(is_wave64_enabled, &target_cpu).link_args;
+    let new_rustflags = link_args
+        .iter()
+        .map(|v| format!("-Clink-arg={v}"))
+        .collect::<Vec<_>>();
+
+    // Copy Cargo.toml, insert lib.path = main.rs if lib does not exist, set lib.crate-type = cdylib
+    let cargo_toml = fs::read_to_string(&manifest_path)
+        .unwrap_or_else(|e| panic!("Failed to read {}: {e}", manifest_path.display()));
+
+    let NewCargoToml {
+        cargo_toml,
+        has_gpu_feature,
+    } = create_cargo_toml(&manifest_path, &manifest_dir, &cargo_toml);
 
     // Write new Cargo.toml
     let gpu_toml_dir = target_dir.clone();
     fs::create_dir_all(&gpu_toml_dir).expect("Failed to create gpu-kernel target dir");
     let gpu_toml = gpu_toml_dir.join("Cargo.toml");
-    fs::write(&gpu_toml, cargo_toml.to_string().as_bytes())
-        .expect("Failed to write GPU Cargo.toml");
+    fs::write(&gpu_toml, cargo_toml.as_bytes()).expect("Failed to write GPU Cargo.toml");
     // Copy Cargo.lock
     if let Err(e) = fs::copy(&lock_path, gpu_toml_dir.join("Cargo.lock")) {
         println!("Warning: Failed to copy Cargo.lock to GPU directory ({e}), ignoring");
@@ -489,8 +523,13 @@ pub fn kernel_lib_impl(_: proc_macro::TokenStream) -> proc_macro::TokenStream {
     if has_gpu_feature {
         cargo.args(&["--features", "gpu"]);
     }
-    for f in cargoflags.split(' ') {
-        cargo.arg(f);
+    if !debug {
+        cargo.arg("--release");
+    }
+    if !cargoflags.is_empty() {
+        for f in cargoflags.split(' ') {
+            cargo.arg(f);
+        }
     }
 
     cargo.env(

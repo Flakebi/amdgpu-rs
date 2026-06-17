@@ -9,7 +9,12 @@
     feature = "amd",
     not(any(target_arch = "amdgpu", target_arch = "nvptx64"))
 ))]
-use std::{alloc::AllocError, ptr::NonNull};
+use std::alloc::AllocError;
+#[cfg(all(
+    feature = "amd",
+    not(any(target_arch = "amdgpu", target_arch = "nvptx64"))
+))]
+use std::ptr::NonNull;
 
 #[cfg(all(
     feature = "amd",
@@ -17,7 +22,10 @@ use std::{alloc::AllocError, ptr::NonNull};
 ))]
 use hip_runtime_sys::hipError_t::hipSuccess;
 
-pub use gpu_kernel_proc_macros::{kernel, kernel_lib_impl};
+mod safe_kernel_arg;
+pub use safe_kernel_arg::*;
+
+pub use gpu_kernel_proc_macros::{kernel, kernel_lib_impl_dbg, kernel_lib_impl_rel};
 
 #[cfg(all(
     feature = "amd",
@@ -39,26 +47,16 @@ pub use amdgpu_device_libs::{dispatch_ptr, intrinsics};
 #[macro_export]
 macro_rules! kernel_lib {
     () => {
+        // TODO Different calls for debug and release mode
         #[cfg(not(any(target_arch = "amdgpu", target_arch = "nvptx64")))]
-        ::gpu_kernel::kernel_lib_impl!();
+        #[cfg(debug_assertions)]
+        ::gpu_kernel::kernel_lib_impl_dbg!();
+        #[cfg(not(any(target_arch = "amdgpu", target_arch = "nvptx64")))]
+        #[cfg(not(debug_assertions))]
+        ::gpu_kernel::kernel_lib_impl_rel!();
 
         #[cfg(any(target_arch = "amdgpu", target_arch = "nvptx64"))]
         extern crate alloc;
-    };
-}
-
-macro_rules! safe_kernel_arg_impl {
-    ($($ty:ty),*) => {
-        $(
-            #[cfg(not(any(target_arch = "amdgpu", target_arch = "nvptx64")))]
-            unsafe impl SafeKernelArg for $ty {
-                type Output = Self;
-
-                fn into_kernel_arg(self) -> Self::Output {
-                    self
-                }
-            }
-        )*
     };
 }
 
@@ -123,19 +121,6 @@ pub struct Kernel {
 unsafe impl Send for Kernel {}
 #[cfg(not(any(target_arch = "amdgpu", target_arch = "nvptx64")))]
 unsafe impl Sync for Kernel {}
-
-/// Marker trait for types that are safe to pass to gpu kernels.
-#[cfg(not(any(target_arch = "amdgpu", target_arch = "nvptx64")))]
-#[diagnostic::on_unimplemented(
-    message = "`SafeKernelArg` is not implemented for `{Self}`",
-    label = "`{Self}` is passed to a kernel here",
-    note = "All kernel arguments must implement `SafeKernelArg` or the kernel must be marked as `unsafe`"
-)]
-pub unsafe trait SafeKernelArg {
-    type Output;
-
-    fn into_kernel_arg(self) -> Self::Output;
-}
 
 #[cfg(all(
     feature = "amd",
@@ -347,100 +332,5 @@ impl Kernel {
                 assert_eq!(result, hipSuccess, "Failed to wait for kernel to finish");
             }
         }
-    }
-}
-
-safe_kernel_arg_impl!(u8, i8, u16, i16, u32, i32, u64, i64, f32, f64);
-
-#[cfg(not(any(target_arch = "amdgpu", target_arch = "nvptx64")))]
-unsafe impl<T> SafeKernelArg for *const T {
-    type Output = Self;
-
-    fn into_kernel_arg(self) -> Self::Output {
-        self
-    }
-}
-
-#[cfg(not(any(target_arch = "amdgpu", target_arch = "nvptx64")))]
-unsafe impl<T> SafeKernelArg for *mut T {
-    type Output = Self;
-
-    fn into_kernel_arg(self) -> Self::Output {
-        self
-    }
-}
-
-#[cfg(all(
-    feature = "amd-allocator",
-    not(any(target_arch = "amdgpu", target_arch = "nvptx64"))
-))]
-unsafe impl<'a, T: SafeKernelArg> SafeKernelArg for &'a Vec<T> {
-    type Output = &'a [T];
-
-    fn into_kernel_arg(self) -> Self::Output {
-        self.as_slice()
-    }
-}
-
-#[cfg(all(
-    feature = "amd-allocator",
-    not(any(target_arch = "amdgpu", target_arch = "nvptx64"))
-))]
-unsafe impl<'a> SafeKernelArg for &'a String {
-    type Output = &'a str;
-
-    fn into_kernel_arg(self) -> Self::Output {
-        self.as_str()
-    }
-}
-
-#[cfg(all(
-    feature = "amd-allocator",
-    not(any(target_arch = "amdgpu", target_arch = "nvptx64"))
-))]
-unsafe impl<'a, T: SafeKernelArg> SafeKernelArg for &'a Box<T> {
-    type Output = &'a T;
-
-    fn into_kernel_arg(self) -> Self::Output {
-        self.as_ref()
-    }
-}
-
-#[cfg(all(
-    feature = "amd-allocator",
-    not(any(target_arch = "amdgpu", target_arch = "nvptx64"))
-))]
-unsafe impl<'a, T: SafeKernelArg> SafeKernelArg for &'a Box<[T]> {
-    type Output = &'a [T];
-
-    fn into_kernel_arg(self) -> Self::Output {
-        self.as_ref()
-    }
-}
-
-#[cfg(not(any(target_arch = "amdgpu", target_arch = "nvptx64")))]
-unsafe impl<'a, T: SafeKernelArg> SafeKernelArg for &'a GpuBox<T> {
-    type Output = &'a T;
-
-    fn into_kernel_arg(self) -> Self::Output {
-        self.as_ref()
-    }
-}
-
-#[cfg(not(any(target_arch = "amdgpu", target_arch = "nvptx64")))]
-unsafe impl<'a, T: SafeKernelArg> SafeKernelArg for &'a GpuBox<[T]> {
-    type Output = &'a [T];
-
-    fn into_kernel_arg(self) -> Self::Output {
-        self.as_ref()
-    }
-}
-
-#[cfg(not(any(target_arch = "amdgpu", target_arch = "nvptx64")))]
-unsafe impl<'a, T: SafeKernelArg> SafeKernelArg for &'a std::sync::Arc<T> {
-    type Output = &'a T;
-
-    fn into_kernel_arg(self) -> Self::Output {
-        std::ops::Deref::deref(self)
     }
 }

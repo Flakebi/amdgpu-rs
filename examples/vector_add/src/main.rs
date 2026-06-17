@@ -1,20 +1,18 @@
 #![cfg_attr(feature = "gpu", no_std, feature(abi_gpu_kernel))]
 
-use gpu_kernel::kernel;
+use gpu_kernel::{ThreadIndexedVec, kernel};
 
 gpu_kernel::kernel_lib!();
 
 /// This kernel adds numbers from two slices and writes the result into a third.
 #[kernel]
-fn kernel(a: &[u32], b: &[u32], c: *mut u32) {
+fn kernel(a: &[u32], b: &[u32], mut c: ThreadIndexedVec<u32>) {
     use gpu_kernel::intrinsics::workitem_id_x;
 
     let id = workitem_id_x() as usize;
 
     // Add two input numbers and store into output
-    unsafe {
-        *c.offset(id as isize) = a[id] + b[id];
-    }
+    *c.get_mut() = a[id] + b[id];
 }
 
 #[cfg(not(feature = "gpu"))]
@@ -22,11 +20,8 @@ fn main() {
     use gpu_kernel::LaunchConfig;
 
     // TODO Move to amdgpu-rs
-    // TODO Build with CARGO_TARGET_AMDGCN_AMD_AMDHSA_RUSTFLAGS='-Ctarget-cpu=gfx...' or set in ~/.cargo/config.toml
     // TODO Document everything and add readmes
-    // TODO Test on Ubuntu podman
     // TODO Add feature to amdgpu-device-libs-build to remove winnow and other dependencies?
-    // TODO safe abstraction for output ptr like cuda-oxide?
 
     // Create two vectors a and b to add together
     let mut a = Vec::new();
@@ -50,7 +45,7 @@ fn main() {
             .workgroups([1, 1, 1]),
         &a,
         &b,
-        c.as_mut_ptr(),
+        &mut c,
     );
 
     println!("Result: {c:?}");
