@@ -275,11 +275,6 @@ pub fn kernel_lib_impl_rel(tokens: proc_macro::TokenStream) -> proc_macro::Token
     kernel_lib_impl(tokens, false)
 }
 
-struct NewCargoToml {
-    cargo_toml: String,
-    has_gpu_feature: bool,
-}
-
 /// Get RUSTFLAGS from env and cargo configs
 fn get_rustflags(env_rustflags: &str, manifest_dir: &Path, target: &str) -> String {
     let mut all_rustflags = env_rustflags.to_string();
@@ -333,6 +328,11 @@ fn get_rustflags(env_rustflags: &str, manifest_dir: &Path, target: &str) -> Stri
         all_rustflags = new_rustflags;
     }
     all_rustflags
+}
+
+struct NewCargoToml {
+    cargo_toml: String,
+    has_gpu_feature: bool,
 }
 
 /// Modify Cargo.toml:
@@ -525,6 +525,10 @@ fn kernel_lib_impl(_: proc_macro::TokenStream, debug: bool) -> proc_macro::Token
     }
     if !debug {
         cargo.arg("--release");
+    } else {
+        // Compile always with optimizations.
+        // Compiling without optimizations can lead to crashes or compilation failures.
+        cargo.args(&["--config", "profile.dev.opt-level=2"]);
     }
     if !cargoflags.is_empty() {
         for f in cargoflags.split(' ') {

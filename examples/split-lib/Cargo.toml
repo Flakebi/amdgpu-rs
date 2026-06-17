@@ -10,3 +10,6 @@ gpu = []
 
 [dependencies]
 gpu-kernel = { path = "../.." }
+
+[target.'cfg(not(any(target_arch = "amdgpu", target_arch = "nvptx64")))'.dependencies]
+# Add CPU-only dependencies here
