@@ -21,7 +21,6 @@ fn main() {
 
     // TODO Move to amdgpu-rs
     // TODO Document everything and add readmes
-    // TODO Add feature to amdgpu-device-libs-build to remove winnow and other dependencies?
 
     // Create two vectors a and b to add together
     let mut a = Vec::new();

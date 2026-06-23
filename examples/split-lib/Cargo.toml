@@ -8,8 +8,10 @@ edition = "2024"
 [features]
 gpu = []
 
+# Dependencies shared between GPU and CPU code, must be no-std
 [dependencies]
 gpu-kernel = { path = "../.." }
 
+# Dependencies for the CPU code, can use std
 [target.'cfg(not(any(target_arch = "amdgpu", target_arch = "nvptx64")))'.dependencies]
 # Add CPU-only dependencies here

@@ -1,4 +1,5 @@
-# Rust on AMD GPUs
+# Rust on (AMD) GPUs
+<!-- TODO docs.rs badge -->
 
 Running Rust code on a GPU is not as hard as it might sound and here is how it’s done!
 
@@ -82,23 +83,36 @@ Contributions for other Rust GPU backends are welcome, adding support to `gpu-ke
    Alternatively, specify the version through an environment variable: `CARGO_TARGET_AMDGCN_AMD_AMDHSA_RUSTFLAGS=-Ctarget-cpu=gfx<your version>`
 1. Set `HIP_PATH=/usr` for `hip-runtime-sys` to find the hip headers
 
-On NixOS, skip step 4 and add `rocmPackages.clr` to your dev shell or alternatively set `HIP_DEVICE_LIB_PATH="${rocmPackages.rocm-device-libs}/amdgcn/bitcode"` and `HIP_PATH="${rocmPackages.clr}"`.
+On NixOS, skip step 4 and add `rocmPackages.clr` to your dev shell to automagically set `HIP_DEVICE_LIB_PATH` and `HIP_PATH` or alternatively set `HIP_DEVICE_LIB_PATH="${rocmPackages.rocm-device-libs}/amdgcn/bitcode"` and `HIP_PATH="${rocmPackages.clr}"`.
 
 ## Settings
 
-A couple of environment variables can be set
+Configuration files like `.cargo/config.toml` and `~/.cargo/config.toml` can be used to specify compiler flags as described in the [setup](#setup) section.
 
-TODO Table
-- Env variables with defaults
-  - HIP_PATH
-  - HIP_DEVICE_LIB_PATH It ends with `amdgcn/bitcode` and contains `.bc` files.
-    - Default: `hipconfig -l`, appending `../lib/clang/*/amdgcn/bitcode`
-  - CARGO_TARGET_AMDGCN_AMD_AMDHSA_RUSTFLAGS
-  - CARGO_TARGET_AMDGCN_AMD_AMDHSA_FLAGS: Flags appended to the cargo invocation
-- Config files (.cargo/config.toml as described in the [setup](#setup) section)
+Additionally, a few of environment variables can be set:
 
-TODO Examples
+| Env variable                               | Default                                         | Example               | Description                                                              |
+|--------------------------------------------|-------------------------------------------------|-----------------------|--------------------------------------------------------------------------|
+| `HIP_PATH`                                 | `/opt/rocm/hip`                                 | `/usr`                | Path to the hip installation to find headers                             |
+| `HIP_DEVICE_LIB_PATH`                      | `$(hipconfig -l)/../lib/clang/*/amdgcn/bitcode` |                       | Path to device libs, ends with `amdgcn/bitcode` and contains `.bc` files |
+| `CARGO_TARGET_AMDGCN_AMD_AMDHSA_RUSTFLAGS` | empty                                           | `-Ctarget-cpu=gfx900` | RUSTFLAGS used to compile amdgpu GPU code                                |
+| `CARGO_TARGET_AMDGCN_AMD_AMDHSA_FLAGS`     | empty                                           | `-v`                  | Cargo flags used to compile amdgpu GPU code                              |
 
-TODO amdgpu-device-libs
+## Examples
 
-TODO License
+More examples can be found in [`examples`](./examples)
+
+## amdgpu-device-libs [![docs.rs](https://docs.rs/amdgpu-device-libs/badge.svg)](https://docs.rs/amdgpu-device-libs)
+
+This repo also contains support libraries for the amdgpu Rust target and more low-level examples using these.
+
+See the [`amdgpu-device-libs`](./amdgpu-device-libs) folder for docs and [`examples-amdgpu-raw`](./examples-amdgpu-raw) for examples.
+
+## License
+
+Licensed under either of
+
+ * [Apache License, Version 2.0](LICENSE-APACHE)
+ * [MIT license](LICENSE-MIT)
+
+at your option.

@@ -61,7 +61,7 @@ fn main() {
 
     let c_gpu = unsafe { c_gpu.assume_init() };
 
-    // Copy c back to CPU
+    // Copy c back to CPU if it was on the GPU
     let mut c = [0u32; 100];
     c.copy_from_slice(&c_gpu[..100]);
 
