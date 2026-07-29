@@ -33,10 +33,10 @@
 //!
 //! [build-dependencies]
 //! # Used in build script to specify linker flags and link in device-libs
-//! amdgpu-device-libs-build = { path = "../../amdgpu-device-libs-build" }
+//! amdgpu-device-libs-build = "<version>"
 //!
 //! [dependencies]
-//! amdgpu-device-libs = { path = "../../amdgpu-device-libs" }
+//! amdgpu-device-libs = "<version>"
 //! ```
 //!
 //! Add extra flags in `.cargo/config.toml`:
@@ -423,6 +423,7 @@ pub unsafe fn call_host_function(
 
 // Define here, otherwise we may get undefined symbols.
 // TODO implement in LLVM?
+#[allow(suspicious_runtime_symbol_definitions)]
 #[unsafe(no_mangle)]
 extern "C" fn memcmp(s1: *const u8, s2: *const u8, n: usize) -> i32 {
     for i in 0..n {

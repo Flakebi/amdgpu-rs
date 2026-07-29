@@ -14,14 +14,16 @@
 //!
 //! This link to the [ROCm device-libs](https://github.com/ROCm/llvm-project/tree/amd-staging/amd/device-libs) and a pre-compiled helper library.
 //! The libraries are linked from a ROCm installation.
-//! To make sure the libraries are found, set the environment variable `ROCM_PATH` or `ROCM_DEVICE_LIB_PATH` (higher priority if it is set).
-//! It looks for `amdgcn/bitcode/*.bc` files in this path.
+//! If libraries are found not found by default, set the environment variable
+//! `HIP_DEVICE_LIB_PATH` to the bitcode files. The path should end with `amdgcn/bitcode`
+//! and contain `.bc` files.
 //! See the documentation of [`amdgpu-device-libs`](https://docs.rs/amdgpu-device-libs) for more information.
 
-use std::collections::HashSet;
+use std::env;
+use std::path::PathBuf;
+use std::process::Command;
 
-use rustflags::Flag;
-
+/// Build arguments for use in build.rs or proc-macros.
 #[derive(Default)]
 pub struct Build {
     pub link_args: Vec<String>,
@@ -29,16 +31,65 @@ pub struct Build {
     pub used_files: Vec<String>,
 }
 
+/// Get build arguments from environment variables and flags.
 pub fn get_link_args(mut is_wave64_enabled: bool, target_cpu: &str) -> Build {
     let mut build = Build::default();
 
     let cur_dir = env!("CARGO_MANIFEST_DIR");
 
-    let rocm_path = std::env::var("ROCM_PATH").unwrap();
-    let rocm_device_lib_path = std::env::var("ROCM_DEVICE_LIB_PATH").unwrap_or(rocm_path);
-    let device_libs = format!("{}/amdgcn/bitcode", rocm_device_lib_path);
-    build.used_env_vars.push("ROCM_PATH".into());
-    build.used_env_vars.push("ROCM_DEVICE_LIB_PATH".into());
+    let mut device_libs = None;
+    // 1. Try HIP_DEVICE_LIB_PATH
+    if let Ok(v) = env::var("HIP_DEVICE_LIB_PATH") {
+        build.used_env_vars.push("HIP_DEVICE_LIB_PATH".into());
+        device_libs = Some(v);
+    } else {
+        // 2. Use `hipconfig -l` ../lib/clang/*/
+        let mut hipconfig = Command::new("hipconfig");
+        hipconfig.arg("-l");
+
+        let hipconfig_r = hipconfig.output();
+        if let Ok(r) = &hipconfig_r {
+            if !r.status.success() {
+                panic!(
+                    "`hipconfig -l` exited unsuccessfully, either fix this or set $HIP_DEVICE_LIB_PATH"
+                );
+            }
+            let s =
+                String::from_utf8(r.stdout.clone()).expect("`hipconfig -l` returned invalid utf-8");
+            let p = PathBuf::from(s)
+                .canonicalize()
+                .expect("Failed to canonicalize device libs path")
+                .parent()
+                .expect("Device libs path must have parent")
+                .join("lib")
+                .join("clang");
+            // Sort all children and take the last (presumably latest)
+            let mut folders = Vec::new();
+            // Ignore failure to read dir, it may not exist
+            if let Ok(dir) = std::fs::read_dir(&p) {
+                for d in dir {
+                    let d = d.expect("Failed to list lib/clang directory content");
+                    if d.file_type().expect("Failed to get file type").is_dir() {
+                        folders.push(d.path());
+                    }
+                }
+            }
+            folders.sort();
+            if let Some(last) = folders.last() {
+                device_libs = Some(format!("{}/amdgcn/bitcode", last.display()));
+            }
+        }
+
+        // 3. Fallback for backwards compat, try ROCM_DEVICE_LIB_PATH or ROCM_PATH, add /amdgcn/bitcode
+        if device_libs.is_none() {
+            if let Ok(v) = env::var("ROCM_DEVICE_LIB_PATH").or_else(|_| env::var("ROCM_PATH")) {
+                build.used_env_vars.push("ROCM_PATH".into());
+                build.used_env_vars.push("ROCM_DEVICE_LIB_PATH".into());
+                device_libs = Some(format!("{}/amdgcn/bitcode", v));
+            }
+        }
+    }
+    let device_libs = device_libs.expect("Device libs not found, must set $HIP_DEVICE_LIB_PATH or provide a path through `hipconfig -l`");
 
     let gfxip = target_cpu
         .strip_prefix("gfx")
@@ -81,9 +132,14 @@ pub fn get_link_args(mut is_wave64_enabled: bool, target_cpu: &str) -> Build {
 ///     amdgpu_device_libs_build::build();
 /// }
 /// ```
+#[cfg(feature = "rustflags")]
 pub fn build() {
+    use std::collections::HashSet;
+
+    use rustflags::Flag;
+
     // Find out target cpu and enabled features
-    let mut target_features = std::env::var("CARGO_CFG_TARGET_FEATURE")
+    let mut target_features = env::var("CARGO_CFG_TARGET_FEATURE")
         .unwrap_or_default()
         .split(',')
         .filter(|s| !s.is_empty())

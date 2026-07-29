@@ -1,6 +1,6 @@
 [package]
 name = "amdgpu-device-libs-build"
-version = "0.1.0"
+version = "0.2.0"
 authors = ["Flakebi <flakebi@t-online.de>"]
 edition = "2024"
 description = "Support library for the amdgpu target, build script utility to link device-libs"
@@ -10,5 +10,9 @@ keywords = ["amdgpu", "gpu"]
 categories = ["development-tools::build-utils", "hardware-support"]
 include = ["/src", "*.bc"]
 
+[features]
+default = ["rustflags"]
+rustflags = ["dep:rustflags"]
+
 [dependencies]
-rustflags = "0.1"
+rustflags = { version = "0.1", optional = true }
