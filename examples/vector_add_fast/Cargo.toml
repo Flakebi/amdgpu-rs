@@ -1,5 +1,5 @@
 [package]
-name = "vector_add"
+name = "vector_add_fast"
 version = "0.1.0"
 edition = "2024"
 
@@ -9,4 +9,4 @@ edition = "2024"
 gpu = []
 
 [dependencies]
-gpu-kernel = { path = "../.." }
+gpu-kernel = { path = "../../gpu-kernel" }

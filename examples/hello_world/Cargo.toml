@@ -9,4 +9,4 @@ edition = "2024"
 gpu = []
 
 [dependencies]
-gpu-kernel = { version = "0.1", path = "../.." }
+gpu-kernel = { version = "0.1", path = "../../gpu-kernel" }

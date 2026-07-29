@@ -1,5 +1,1 @@
-amdgpu-device-libs/Cargo.lock
-amdgpu-device-libs-build/Cargo.lock
-gpu-kernel/Cargo.lock
-gpu-kernel-proc-macros/Cargo.lock
 target

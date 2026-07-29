@@ -15,7 +15,7 @@ See the [`amdgpu-device-libs`](./amdgpu-device-libs) folder for docs and [`examp
 ## Tests
 
 All examples can be run with `nix run .#runExamples`.
-To specify a non-default device, e.g. 1, use `nix run .#runExamples -- -d 1`.
+To specify a non-default device, e.g. 1, use `ROCR_VISIBLE_DEVICES=1 nix run .#runExamples`.
 
 ## License
 

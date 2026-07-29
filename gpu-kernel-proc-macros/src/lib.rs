@@ -15,7 +15,6 @@ use syn::{
 };
 use toml::Table;
 use toml::map::Entry;
-use toml::value::Array;
 
 /// If the given `lifetime` is `None` or '_, create a named lifetime, otherwise return `None`.
 fn to_explicit_lifetimes(
@@ -24,10 +23,10 @@ fn to_explicit_lifetimes(
     i: u32,
     extra_lifetimes: &mut Vec<Lifetime>,
 ) -> Option<Lifetime> {
-    if let Some(lifetime) = lifetime {
-        if lifetime.ident != "_" {
-            return None;
-        }
+    if let Some(lifetime) = lifetime
+        && lifetime.ident != "_"
+    {
+        return None;
     }
 
     // Create a new lifetime
@@ -61,11 +60,10 @@ fn type_with_explicit_lifetimes(
             .arguments
         {
             for a in args.args.iter_mut() {
-                if let GenericArgument::Lifetime(lifetime) = a {
-                    if let Some(l) = to_explicit_lifetimes(Some(lifetime), name, i, extra_lifetimes)
-                    {
-                        *lifetime = l;
-                    }
+                if let GenericArgument::Lifetime(lifetime) = a
+                    && let Some(l) = to_explicit_lifetimes(Some(lifetime), name, i, extra_lifetimes)
+                {
+                    *lifetime = l;
                 }
             }
         }
@@ -244,6 +242,7 @@ pub fn kernel(
             let mut _gpu_kernel_size: usize = 0;
             #(
                 let #input_alignment_names = std::mem::align_of_val(&#input_names);
+                #[allow(clippy::size_of_ref)]
                 let #input_size_names = std::mem::size_of_val(&#input_names);
                 _gpu_kernel_size =
                     _gpu_kernel_size.next_multiple_of(#input_alignment_names)
@@ -463,12 +462,11 @@ fn create_cargo_toml(
     // Set or fixup lib path
     match lib_config.entry("path") {
         Entry::Vacant(e) => {
-            let path;
-            if has_lib {
-                path = format!("{rel_prefix}/src/lib.rs");
+            let path = if has_lib {
+                format!("{rel_prefix}/src/lib.rs")
             } else {
-                path = format!("{rel_prefix}/src/main.rs");
-            }
+                format!("{rel_prefix}/src/main.rs")
+            };
             e.insert(path.into());
         }
         Entry::Occupied(mut e) => {
@@ -481,19 +479,17 @@ fn create_cargo_toml(
         }
     }
 
-    let mut a = Array::new();
-    a.push("cdylib".into());
-    lib_config.insert("crate-type".into(), a.into());
+    lib_config.insert("crate-type".into(), vec!["cdylib"].into());
 
     // Fixup all relative dependency paths in the Cargo.toml
     let fix_dep = |v: &mut toml::Value| {
-        if let Some(v) = v.as_table_mut() {
-            if let Some(p) = v.get_mut("path") {
-                let path = Path::new(p.as_str().expect("Dependency path must be a toml string"));
-                if path.is_relative() {
-                    let new = Path::new(&rel_prefix).join(path).display().to_string();
-                    *p = new.into();
-                }
+        if let Some(v) = v.as_table_mut()
+            && let Some(p) = v.get_mut("path")
+        {
+            let path = Path::new(p.as_str().expect("Dependency path must be a toml string"));
+            if path.is_relative() {
+                let new = Path::new(&rel_prefix).join(path).display().to_string();
+                *p = new.into();
             }
         }
     };
@@ -526,10 +522,11 @@ fn create_cargo_toml(
 }
 
 fn kernel_lib_impl(_: proc_macro::TokenStream, debug: bool) -> proc_macro::TokenStream {
-    let target = {
-        #[cfg(feature = "amd")]
-        "amdgcn-amd-amdhsa"
-    };
+    #[cfg(feature = "amd")]
+    let target = "amdgcn-amd-amdhsa";
+    #[cfg(not(feature = "amd"))]
+    let target = "";
+
     let target_env = target.replace('-', "_").to_uppercase();
     let target_rustflags = format!("CARGO_TARGET_{target_env}_RUSTFLAGS");
     let target_cargoflags = format!("CARGO_TARGET_{target_env}_FLAGS");
@@ -572,6 +569,7 @@ fn kernel_lib_impl(_: proc_macro::TokenStream, debug: bool) -> proc_macro::Token
         &all_rustflags[start..end]
     };
     // Enabled and not disabled or enabling comes later than disabling
+    #[cfg(feature = "amd")]
     let is_wave64_enabled = all_rustflags
         .rfind("+wavefrontsize64")
         .map(|i| {
@@ -583,8 +581,11 @@ fn kernel_lib_impl(_: proc_macro::TokenStream, debug: bool) -> proc_macro::Token
         })
         .unwrap_or_default();
 
+    #[cfg(feature = "amd")]
     let link_args =
         amdgpu_device_libs_build::get_link_args(is_wave64_enabled, &target_cpu).link_args;
+    #[cfg(not(feature = "amd"))]
+    let link_args = [/* mark as used */ target_cpu];
     let new_rustflags = link_args
         .iter()
         .map(|v| format!("-Clink-arg={v}"))
@@ -610,7 +611,7 @@ fn kernel_lib_impl(_: proc_macro::TokenStream, debug: bool) -> proc_macro::Token
     }
 
     let mut cargo = Command::new("cargo");
-    cargo.args(&[
+    cargo.args([
         "build",
         "--target",
         target,
@@ -629,7 +630,7 @@ fn kernel_lib_impl(_: proc_macro::TokenStream, debug: bool) -> proc_macro::Token
         // because GPU code is often quite performance sensitive and just the
         // existence of panic messages can slow things down considerably.
         // E.g. the vector_add_fast example gets a speed-up of 6%.
-        cargo.args(&[
+        cargo.args([
             "--release",
             "-Zpanic-immediate-abort",
             "--config=profile.release.panic=\"immediate-abort\"",

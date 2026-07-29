@@ -10,7 +10,7 @@ gpu = []
 
 # Dependencies shared between GPU and CPU code, must be no-std
 [dependencies]
-gpu-kernel = { path = "../.." }
+gpu-kernel = { path = "../../gpu-kernel" }
 
 # Dependencies for the CPU code, can use std
 [target.'cfg(not(any(target_arch = "amdgpu", target_arch = "nvptx64")))'.dependencies]

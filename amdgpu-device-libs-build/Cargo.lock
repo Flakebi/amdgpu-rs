@@ -3,22 +3,10 @@
 version = 4
 
 [[package]]
-name = "amdgpu-device-libs"
-version = "0.2.0"
-
-[[package]]
 name = "amdgpu-device-libs-build"
 version = "0.2.0"
 dependencies = [
  "rustflags",
-]
-
-[[package]]
-name = "println"
-version = "0.1.0"
-dependencies = [
- "amdgpu-device-libs",
- "amdgpu-device-libs-build",
 ]
 
 [[package]]

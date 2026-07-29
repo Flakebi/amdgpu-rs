@@ -1,16 +1,27 @@
 [package]
 name = "gpu-kernel"
 version = "0.1.0"
+authors = ["Flakebi <flakebi@t-online.de>"]
 edition = "2024"
+description = "Compile and run Rust on GPUs easily"
+repository = "https://github.com/Flakebi/amdgpu-rs/tree/main/gpu-kernel"
+license = "MIT OR Apache-2.0"
+keywords = ["amdgpu", "gpu"]
+categories = ["hardware-support"]
+include = ["/src", "README.md"]
 
 [features]
 default = ["amd", "amd-allocator"]
-amd = ["dep:hip-runtime-sys", "dep:amdgpu-device-libs", "gpu-kernel-proc-macros/amd"]
+amd = [
+  "dep:hip-runtime-sys",
+  "dep:amdgpu-device-libs",
+  "gpu-kernel-proc-macros/amd",
+]
 # Allocate everything as unified memory, allows sharing normal CPU allocations with the GPU without explicitly transferring memory
 amd-allocator = ["amd"]
 
 [dependencies]
-gpu-kernel-proc-macros = { version = "0.1", path = "gpu-kernel-proc-macros" }
+gpu-kernel-proc-macros = { version = "0.1", path = "../gpu-kernel-proc-macros" }
 
 # CPU dependencies
 [target.'cfg(not(any(target_arch = "amdgpu", target_arch = "nvptx64")))'.dependencies]

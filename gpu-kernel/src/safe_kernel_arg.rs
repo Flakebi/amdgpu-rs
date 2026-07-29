@@ -63,7 +63,7 @@ pub struct ThreadIndexedSlice<'a, T> {
 safe_kernel_arg_impl!(bool, u8, i8, u16, i16, u32, i32, u64, i64, f32, f64);
 
 // SAFETY: A pointer has the same layout in the CPU and GPU calling convention.
-// It migth not point to GPU accessible memory, but that is fine as it is not
+// It might not point to GPU accessible memory, but that is fine as it is not
 // safely dereferenceable.
 #[cfg(not(any(target_arch = "amdgpu", target_arch = "nvptx64")))]
 unsafe impl<T> SafeKernelArg for *const T {
@@ -207,10 +207,10 @@ macro_rules! safe_kernel_arg_list_impl {
 
 // SAFETY: See Vec<T>
 #[cfg(feature = "amd-allocator")]
-safe_kernel_arg_list_impl!(Vec<T>: |v: &Vec<_>| v.len(); |v: &mut Vec<_>| v.as_mut_ptr());
+safe_kernel_arg_list_impl!(Vec<T>: |v: &[_]| v.len(); |v: &mut [_]| v.as_mut_ptr());
 #[cfg(feature = "amd-allocator")]
-safe_kernel_arg_list_impl!(Box<[T]>: |v: &Box<[_]>| v.len(); |v: &mut Box<[_]>| v.as_mut_ptr());
-safe_kernel_arg_list_impl!(GpuBox<[T]>: |v: &GpuBox<[_]>| v.len(); |v: &mut GpuBox<[_]>| v.as_mut_ptr());
+safe_kernel_arg_list_impl!(Box<[T]>: |v: &[_]| v.len(); |v: &mut [_]| v.as_mut_ptr());
+safe_kernel_arg_list_impl!(GpuBox<[T]>: |v: &[_]| v.len(); |v: &mut [_]| v.as_mut_ptr());
 
 #[cfg(any(target_arch = "amdgpu", target_arch = "nvptx64"))]
 fn thread_id() -> usize {

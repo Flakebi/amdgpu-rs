@@ -28,8 +28,7 @@ fn main() {
     }
 
     // Create vector c to hold the results
-    let mut c = Vec::new();
-    c.resize(a.len(), 0);
+    let mut c = vec![0; a.len()];
 
     // We pass CPU pointers to the kernel, which works fine, though is potentially slow.
     // See the vector_add_fast example for how to improve this.

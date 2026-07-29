@@ -8,7 +8,7 @@ repository = "https://github.com/Flakebi/amdgpu-rs/tree/main/amdgpu-device-libs-
 license = "MIT OR Apache-2.0"
 keywords = ["amdgpu", "gpu"]
 categories = ["development-tools::build-utils", "hardware-support"]
-include = ["/src", "*.bc"]
+include = ["/src", "*.bc", "README.md"]
 
 [features]
 default = ["rustflags"]

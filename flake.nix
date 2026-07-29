@@ -38,12 +38,16 @@
 
         craneLib = (crane.mkLib pkgs).overrideToolchain native-toolchain;
 
+        cpuTy = "cpu";
+        gpuTy = "gpu";
+        gpuKernelTy = "gpu-kernel";
+
         # Common arguments can be set here to avoid repeating them later
         craneArgs =
-          isGpu: path:
+          ty: path:
           let
             # Do not use craneLib.cleanCargoSource, otherwise it does not find util32.bc
-            src = if isGpu then ./. else craneLib.cleanCargoSource ./.;
+            src = if ty != cpuTy then ./. else craneLib.cleanCargoSource ./.;
             cargoLock = ./${path}/Cargo.lock;
           in
           {
@@ -54,7 +58,7 @@
               sourceRoot="."
             '';
             strictDeps = true;
-            doCheck = !isGpu;
+            doCheck = ty == cpuTy;
 
             cargoVendorDir = craneLib.vendorMultipleCargoDeps {
               inherit (craneLib.findCargoFiles src) cargoConfigs;
@@ -65,35 +69,49 @@
               ];
             };
 
+            # TODO Remove
             ROCM_PATH = "${pkgs.rocmPackages.clr}";
             ROCM_DEVICE_LIB_PATH = "${pkgs.rocmPackages.rocm-device-libs}";
             CARGO_BUILD_RUSTFLAGS = "--deny warnings";
           }
           // (
-            if !isGpu then
+            if ty == cpuTy then
               { }
-            else
+            else if ty == gpuTy then
               {
                 CARGO_BUILD_RUSTFLAGS = "--deny warnings -Ctarget-cpu=gfx1036";
+              }
+            else
+              {
+                CARGO_TARGET_AMDGCN_AMD_AMDHSA_RUSTFLAGS = "-Ctarget-cpu=gfx1036";
               }
           );
 
         cpu_pkgs = [
           "amdgpu-device-libs-build"
-          "examples/default-cpu"
-          "examples/hostcall-cpu"
+          "gpu-kernel"
+          "gpu-kernel-proc-macros"
+          "examples-raw/default-cpu"
+          "examples-raw/hostcall-cpu"
         ];
         gpu_pkgs = [
           "amdgpu-device-libs"
-          "examples/hostcall-gpu"
-          "examples/panic"
-          "examples/println"
-          "examples/vector_copy"
+          "examples-raw/hostcall-gpu"
+          "examples-raw/panic"
+          "examples-raw/println"
+          "examples-raw/vector_copy"
+        ];
+        gpu_kernel_pkgs = [
+          "examples/hello_world"
+          "examples/split_lib"
+          "examples/vector_add"
+          "examples/vector_add_fast"
         ];
 
         package_args =
-          (lib.genAttrs cpu_pkgs (pkg: craneArgs false pkg))
-          // (lib.genAttrs gpu_pkgs (pkg: craneArgs true pkg));
+          (lib.genAttrs cpu_pkgs (pkg: craneArgs cpuTy pkg))
+          // (lib.genAttrs gpu_pkgs (pkg: craneArgs gpuTy pkg))
+          // (lib.genAttrs gpu_kernel_pkgs (pkg: craneArgs gpuKernelTy pkg));
 
         # Build the actual crate itself, reusing the dependency artifacts.
         packages = builtins.mapAttrs (
@@ -104,7 +122,7 @@
           builtins.map (pkg: {
             name = "${pkg}-fmt";
             value = craneLib.cargoFmt { src = craneLib.cleanCargoSource ./${pkg}; };
-          }) (cpu_pkgs ++ gpu_pkgs)
+          }) (cpu_pkgs ++ gpu_pkgs ++ gpu_kernel_pkgs)
         );
 
         packages_clippy = builtins.mapAttrs (
@@ -122,14 +140,19 @@
         # Run all examples (except panic)
         runExamples =
           let
-            default-cpu = lib.getExe' packages."examples/default-cpu" "default-cpu";
-            hostcall-cpu = lib.getExe' packages."examples/hostcall-cpu" "hostcall-cpu";
+            default-cpu = lib.getExe' packages."examples-raw/default-cpu" "default-cpu";
+            hostcall-cpu = lib.getExe' packages."examples-raw/hostcall-cpu" "hostcall-cpu";
           in
           pkgs.writeShellScriptBin "runExamples" ''
             set -euxo pipefail
-            ${default-cpu} ${packages."examples/vector_copy"}/lib/vector_copy.elf "$@"
-            ${default-cpu} ${packages."examples/println"}/lib/println.elf "$@"
-            ${hostcall-cpu} ${packages."examples/hostcall-gpu"}/lib/hostcall_gpu.elf "$@"
+            ${default-cpu} ${packages."examples-raw/vector_copy"}/lib/vector_copy.elf "$@"
+            ${default-cpu} ${packages."examples-raw/println"}/lib/println.elf "$@"
+            ${hostcall-cpu} ${packages."examples-raw/hostcall-gpu"}/lib/hostcall_gpu.elf "$@"
+
+            ${lib.getExe' packages."examples/hello_world" "hello_world"}
+            ${lib.getExe' packages."examples/split_lib" "split_lib"}
+            ${lib.getExe' packages."examples/vector_add" "vector_add"}
+            ${lib.getExe' packages."examples/vector_add_fast" "vector_add_fast"}
           '';
       in
       {

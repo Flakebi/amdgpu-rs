@@ -8,6 +8,7 @@ use gpu_kernel::kernel;
 gpu_kernel::kernel_lib!();
 
 /// This kernel adds numbers from two slices and writes the result into a third.
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[kernel]
 pub fn kernel(a: &[u32], b: &[u32], c: *mut u32) {
     use gpu_kernel::intrinsics::{workgroup_id_x, workitem_id_x};
@@ -37,7 +38,7 @@ fn main() {
     let mut a = Vec::new();
     let mut b = Vec::new();
     // Use a multiple of 32, so that the kernel does not need to handle boundaries
-    for i in 0..3200_000 {
+    for i in 0..3_200_000 {
         a.push(i);
         b.push(i);
     }

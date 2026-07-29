@@ -81,12 +81,12 @@ pub fn get_link_args(mut is_wave64_enabled: bool, target_cpu: &str) -> Build {
         }
 
         // 3. Fallback for backwards compat, try ROCM_DEVICE_LIB_PATH or ROCM_PATH, add /amdgcn/bitcode
-        if device_libs.is_none() {
-            if let Ok(v) = env::var("ROCM_DEVICE_LIB_PATH").or_else(|_| env::var("ROCM_PATH")) {
-                build.used_env_vars.push("ROCM_PATH".into());
-                build.used_env_vars.push("ROCM_DEVICE_LIB_PATH".into());
-                device_libs = Some(format!("{}/amdgcn/bitcode", v));
-            }
+        if device_libs.is_none()
+            && let Ok(v) = env::var("ROCM_DEVICE_LIB_PATH").or_else(|_| env::var("ROCM_PATH"))
+        {
+            build.used_env_vars.push("ROCM_PATH".into());
+            build.used_env_vars.push("ROCM_DEVICE_LIB_PATH".into());
+            device_libs = Some(format!("{}/amdgcn/bitcode", v));
         }
     }
     let device_libs = device_libs.expect("Device libs not found, must set $HIP_DEVICE_LIB_PATH or provide a path through `hipconfig -l`");
