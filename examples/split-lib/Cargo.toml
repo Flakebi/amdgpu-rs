@@ -1,0 +1,17 @@
+[package]
+name = "split_lib"
+version = "0.1.0"
+edition = "2024"
+
+# This gets defined when building for the gpu.
+# It can be omitted when using target_arch or similar for cfg conditions, it exists for convenience only.
+[features]
+gpu = []
+
+# Dependencies shared between GPU and CPU code, must be no-std
+[dependencies]
+gpu-kernel = { path = "../.." }
+
+# Dependencies for the CPU code, can use std
+[target.'cfg(not(any(target_arch = "amdgpu", target_arch = "nvptx64")))'.dependencies]
+# Add CPU-only dependencies here

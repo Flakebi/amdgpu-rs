@@ -1,0 +1,21 @@
+[package]
+name = "gpu-kernel"
+version = "0.1.0"
+edition = "2024"
+
+[features]
+default = ["amd", "amd-allocator"]
+amd = ["dep:hip-runtime-sys", "dep:amdgpu-device-libs", "gpu-kernel-proc-macros/amd"]
+# Allocate everything as unified memory, allows sharing normal CPU allocations with the GPU without explicitly transferring memory
+amd-allocator = ["amd"]
+
+[dependencies]
+gpu-kernel-proc-macros = { version = "0.1", path = "gpu-kernel-proc-macros" }
+
+# CPU dependencies
+[target.'cfg(not(any(target_arch = "amdgpu", target_arch = "nvptx64")))'.dependencies]
+hip-runtime-sys = { version = "0.1", optional = true }
+
+# GPU dependencies
+[target.'cfg(target_arch = "amdgpu")'.dependencies]
+amdgpu-device-libs = { version = "0.2", path = "../amdgpu-device-libs", optional = true }

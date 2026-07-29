@@ -1,0 +1,17 @@
+[package]
+name = "gpu-kernel-proc-macros"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+proc-macro = true
+
+[features]
+amd = ["dep:amdgpu-device-libs-build"]
+
+[dependencies]
+amdgpu-device-libs-build = { version = "0.2", path = "../amdgpu-device-libs-build", optional = true, default-features = false }
+proc-macro2 = "1"
+quote = "1"
+syn = { version = "3", features = ["full"] }
+toml = "1"

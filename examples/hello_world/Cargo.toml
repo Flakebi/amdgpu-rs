@@ -1,0 +1,12 @@
+[package]
+name = "hello_world"
+version = "0.1.0"
+edition = "2024"
+
+# This gets defined when building for the gpu.
+# It can be omitted when using target_arch or similar for cfg conditions, it exists for convenience only.
+[features]
+gpu = []
+
+[dependencies]
+gpu-kernel = { version = "0.1", path = "../.." }
