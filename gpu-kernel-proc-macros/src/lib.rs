@@ -10,8 +10,8 @@ use std::{env, fs};
 
 use quote::{format_ident, quote};
 use syn::{
-    FnArg, GenericArgument, Generics, Ident, ItemFn, Lifetime, Pat, PathArguments, Type,
-    parse_macro_input,
+    FnArg, GenericArgument, GenericParam, Generics, Ident, ItemFn, Lifetime, Pat, PathArguments,
+    Safety, Type, parse_macro_input,
 };
 use toml::Table;
 use toml::map::Entry;
@@ -112,7 +112,8 @@ pub fn kernel(
     let attrs = func.attrs;
     let vis = func.vis;
     let code = func.block;
-    let unsafety = func.sig.unsafety;
+    let safety = func.sig.safety;
+    let is_unsafe = matches!(safety, Safety::Unsafe(_));
     let orig_ident = func.sig.ident;
     let kernel_ident = format_ident!("{}_gpu_kernel", orig_ident);
     let kernel_struct_ident = format_ident!("GpuKernel_{}", orig_ident);
@@ -125,11 +126,12 @@ pub fn kernel(
         func.sig.asyncness.is_none(),
         "#[kernel] `{orig_ident}` cannot be async",
     );
-    // TODO Forbid only type generics but allow lifetimes
-    /*assert!(
-        func.sig.generics.lt_token.is_none(),
-        "#[kernel] `{orig_ident}` cannot be generic",
-    );*/
+    // Forbid type generics but allow lifetimes
+    for g in &generics.params {
+        if !matches!(g, GenericParam::Lifetime(_)) {
+            panic!("#[kernel] `{orig_ident}` cannot be generic");
+        }
+    }
     assert!(
         func.sig.variadic.is_none(),
         "#[kernel] `{orig_ident}` cannot be variadic"
@@ -175,7 +177,7 @@ pub fn kernel(
                         "#[kernel] `{orig_ident}` arg `{name}` cannot be of `impl Trait` type"
                     );
                 }
-                if unsafety.is_some() {
+                if is_unsafe {
                     let ty = &arg.ty;
                     input_tys.push(quote! { #ty });
                 } else {
@@ -205,7 +207,7 @@ pub fn kernel(
         quote! { <#(#extra_lifetimes),*> }
     };
 
-    let require_safe = if unsafety.is_some() {
+    let require_safe = if is_unsafe {
         quote!()
     } else {
         // The kernel is not marked as unsafe, so all arguments must implement SafeKernelArg
@@ -216,7 +218,7 @@ pub fn kernel(
         )
     };
 
-    let safe_attrs = if unsafety.is_some() {
+    let safe_attrs = if is_unsafe {
         quote!()
     } else {
         // Apply known safe attrs
@@ -291,12 +293,12 @@ pub fn kernel(
         #[allow(unused_imports)]
         use ::gpu_kernel::prelude::*;
 
-        // Safety: Append "_gpu_kernel" to create a name that can use no_mangle
+        // SAFETY: Append "_gpu_kernel" to create a name that can use no_mangle
         #[cfg(any(target_arch = "amdgpu", target_arch = "nvptx64"))]
         #[unsafe(no_mangle)]
         #(#attrs)*
         #safe_attrs
-        #vis #unsafety extern "gpu-kernel" fn #kernel_ident #generics(#inputs) #where_clause #output
+        #vis #safety extern "gpu-kernel" fn #kernel_ident #generics(#inputs) #where_clause #output
             #code
 
         // CPU code
@@ -309,7 +311,7 @@ pub fn kernel(
         #[allow(non_upper_case_globals)]
         #(#attrs)*
         #vis static #orig_ident: std::sync::LazyLock<#kernel_struct_ident> = std::sync::LazyLock::new(|| {
-            #kernel_struct_ident(crate::GPU_KERNEL_MODULE.get_kernel(std::stringify!(#kernel_ident)))
+            #kernel_struct_ident(crate::KERNEL_LIB_CALLED_IN_CRATE.get_kernel(std::stringify!(#kernel_ident)))
         });
 
         #[cfg(not(any(target_arch = "amdgpu", target_arch = "nvptx64")))]
@@ -323,7 +325,7 @@ pub fn kernel(
 
         #[cfg(not(any(target_arch = "amdgpu", target_arch = "nvptx64")))]
         impl #kernel_struct_ident {
-            #vis #unsafety fn launch #cpu_generics(&self, gpu_kernel_launch_config: &::gpu_kernel::LaunchConfig, #(mut #input_names: #input_tys),*) #where_clause {
+            #vis #safety fn launch #cpu_generics(&self, gpu_kernel_launch_config: &::gpu_kernel::LaunchConfig, #(mut #input_names: #input_tys),*) #where_clause {
                 #require_safe
                 #args
                 // Launch kernel
@@ -672,8 +674,11 @@ fn kernel_lib_impl(_: proc_macro::TokenStream, debug: bool) -> proc_macro::Token
 
         #[doc(hidden)]
         static GPU_KERNEL_MODULE_DATA: &[u8] = std::include_bytes!(#kernel_path);
+        // If someone forgets to call kernel_lib!() and defines a kernel, they will see
+        // an error that this is not found.
+        // Use the name to hint the user what is missing.
         #[doc(hidden)]
-        static GPU_KERNEL_MODULE: std::sync::LazyLock<::gpu_kernel::Module> = std::sync::LazyLock::new(|| ::gpu_kernel::Module::new(GPU_KERNEL_MODULE_DATA));
+        static KERNEL_LIB_CALLED_IN_CRATE: std::sync::LazyLock<::gpu_kernel::Module> = std::sync::LazyLock::new(|| ::gpu_kernel::Module::new(GPU_KERNEL_MODULE_DATA));
     };
     proc_macro::TokenStream::from(output)
 }

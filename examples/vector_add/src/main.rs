@@ -20,7 +20,6 @@ fn main() {
     use gpu_kernel::LaunchConfig;
 
     // TODO Move to amdgpu-rs
-    // TODO Error message when missing kernel_lib! ?
 
     // Create two vectors a and b to add together
     let mut a = Vec::new();

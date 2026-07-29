@@ -13,5 +13,5 @@ amd = ["dep:amdgpu-device-libs-build"]
 amdgpu-device-libs-build = { version = "0.2", path = "../../amdgpu-rs/amdgpu-device-libs-build", optional = true, default-features = false }
 proc-macro2 = "1"
 quote = "1"
-syn = { version = "2", features = ["full"] }
+syn = { version = "3", features = ["full"] }
 toml = "1"
