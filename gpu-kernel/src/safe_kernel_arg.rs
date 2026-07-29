@@ -47,10 +47,35 @@ pub unsafe trait SafeKernelArg {
     fn into_kernel_arg(self, launch_config: &LaunchConfig) -> Self::Output;
 }
 
-/// Pass an `&mut Vec<T>` to a kernel and each thread gets mutable access to one element of the vector.
+/// Safely pass a list to a kernel and let every thread mutably access one element of the list.
 ///
-/// The size of the vector needs to be equal to the number of launched threads otherwise launching the
+/// The size of the list needs to be equal to the number of launched threads otherwise launching the
 /// kernel panics.
+///
+/// # Example
+///
+/// ```no_run
+/// use gpu_kernel::{kernel, ThreadIndexedSlice};
+///
+/// gpu_kernel::kernel_lib!();
+///
+/// #[kernel]
+/// fn kernel(elem: ThreadIndexedSlice<'_, i32>) {
+///     // Every thread writes two into the element assigned to this thread
+///     *elem.get_mut() = 2;
+/// }
+///
+/// fn main() {
+///     // Needs the same length as the number of threads launched
+///     let mut data = vec![0; 10];
+///     kernel.launch(
+///         gpu_kernel::LaunchConfig::new()
+///             .threads_per_workgroup([data.len() as u32, 1, 1])
+///             .workgroups([1, 1, 1]),
+///         &mut data,
+///     );
+/// }
+/// ```
 // Needs repr transparent to be passed as a pointer. Structs would be passed by reference.
 #[repr(transparent)]
 pub struct ThreadIndexedSlice<'a, T> {

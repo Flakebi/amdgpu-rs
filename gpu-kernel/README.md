@@ -46,7 +46,7 @@ Hello World from thread #8!
 Hello World from thread #9!
 ```
 
-In `Cargo.toml`, we add `gpu-kernel` as a dependency:
+In `Cargo.toml`, we add `gpu-kernel` as a dependency and that’s it:
 ```toml
 # Cargo.toml
 [package]
@@ -68,21 +68,21 @@ For `cargo run` to work, the GPU compute runtime needs to be installed, see the 
 ### Setup
 
 Currently, AMD GPUs are supported.
-Contributions for other Rust GPU backends are welcome, adding support to `gpu-kernel` should be relatively straightforward.
+Contributions for other Rust GPU targets are welcome, adding support to `gpu-kernel` should be relatively straightforward.
 
-1. Install ROCm, on Ubuntu 26.04, this is a simple `apt install rocm-dev`
+1. Install ROCm. On Ubuntu 26.04, this is a simple `apt install rocm-dev`
 1. Add `rust-src` to rustup to support build-std: `rustup component add rust-src`
 1. Configure your GPU in cargo’s config, find your version with `rocminfo | grep gfx`:
    ```toml
    # ~/.cargo/config.toml
    [target.amdgcn-amd-amdhsa]
    rustflags = ["-Ctarget-cpu=gfx<your version>"]
-   # If rocminfo shows xnack- for your GPU, add "-Ctarget-feature=-xnack-support"
+   # If rocminfo shows xnack- for your GPU, add "-Ctarget-feature=-xnack-support" as well
    ```
-   Alternatively, specify the version through an environment variable: `CARGO_TARGET_AMDGCN_AMD_AMDHSA_RUSTFLAGS=-Ctarget-cpu=gfx<your version>`
+   Alternatively, specify the flags through an environment variable: `CARGO_TARGET_AMDGCN_AMD_AMDHSA_RUSTFLAGS=-Ctarget-cpu=gfx<your version>`
 1. Set `HIP_PATH=/usr` for `hip-runtime-sys` to find the hip headers
 
-On NixOS, skip step 4 and add `rocmPackages.clr` to your dev shell to automagically set `HIP_DEVICE_LIB_PATH` and `HIP_PATH` or alternatively set `HIP_DEVICE_LIB_PATH="${rocmPackages.rocm-device-libs}/amdgcn/bitcode"` and `HIP_PATH="${rocmPackages.clr}"`.
+On NixOS, skip step 4 and add `rocmPackages.clr` to your dev shell to automagically set `HIP_DEVICE_LIB_PATH` and `HIP_PATH` or manually set `HIP_DEVICE_LIB_PATH="${rocmPackages.rocm-device-libs}/amdgcn/bitcode"` and `HIP_PATH="${rocmPackages.clr}"`.
 
 ### Settings
 
@@ -101,7 +101,7 @@ Several flags are added automatically to the GPU compilation.
 
 - If a `gpu` feature is defined in `Cargo.toml`, `--features=gpu` is passed to cargo
 - The `crate-type` is set to `cdylib`
-- Device libs are added to `link-arg`s and `-Clinker-plugin-lto`
+- Device libs are added to `link-arg`s and `-Clinker-plugin-lto` is enabled
 - core and alloc are built with `-Zbuild-std=core,alloc`
 - In debug mode, `opt-level=2` is set, as no optimizations can lead to crashes or compilation failures in the backend
 - In release mode, `panic=immediate-abort` is set for performance, so no panic messages are available

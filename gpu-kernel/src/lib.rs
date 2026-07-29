@@ -1,7 +1,7 @@
 //! Running Rust code on a GPU is not as hard as it might sound and here is how it’s done!
 //!
 //! Let us start with the code, it takes just a few lines:
-//! ```rust
+//! ```rust,no_run
 //! // main.rs
 //! // GPU code is no-std
 //! #![cfg_attr(feature = "gpu", no_std, feature(abi_gpu_kernel))]
@@ -44,7 +44,7 @@
 //! Hello World from thread #9!
 //! ```
 //!
-//! In `Cargo.toml`, we add `gpu-kernel` as a dependency:
+//! In `Cargo.toml`, we add `gpu-kernel` as a dependency and that’s it:
 //! ```toml
 //! # Cargo.toml
 //! [package]
@@ -66,21 +66,21 @@
 //! ## Setup
 //!
 //! Currently, AMD GPUs are supported.
-//! Contributions for other Rust GPU backends are welcome, adding support to `gpu-kernel` should be relatively straightforward.
+//! Contributions for other Rust GPU targets are welcome, adding support to `gpu-kernel` should be relatively straightforward.
 //!
-//! 1. Install ROCm, on Ubuntu 26.04, this is a simple `apt install rocm-dev`
+//! 1. Install ROCm. On Ubuntu 26.04, this is a simple `apt install rocm-dev`
 //! 1. Add `rust-src` to rustup to support build-std: `rustup component add rust-src`
 //! 1. Configure your GPU in cargo’s config, find your version with `rocminfo | grep gfx`:
 //!    ```toml
 //!    # ~/.cargo/config.toml
 //!    [target.amdgcn-amd-amdhsa]
 //!    rustflags = ["-Ctarget-cpu=gfx<your version>"]
-//!    # If rocminfo shows xnack- for your GPU, add "-Ctarget-feature=-xnack-support"
+//!    # If rocminfo shows xnack- for your GPU, add "-Ctarget-feature=-xnack-support" as well
 //!    ```
-//!    Alternatively, specify the version through an environment variable: `CARGO_TARGET_AMDGCN_AMD_AMDHSA_RUSTFLAGS=-Ctarget-cpu=gfx<your version>`
+//!    Alternatively, specify the flags through an environment variable: `CARGO_TARGET_AMDGCN_AMD_AMDHSA_RUSTFLAGS=-Ctarget-cpu=gfx<your version>`
 //! 1. Set `HIP_PATH=/usr` for `hip-runtime-sys` to find the hip headers
 //!
-//! On NixOS, skip step 4 and add `rocmPackages.clr` to your dev shell to automagically set `HIP_DEVICE_LIB_PATH` and `HIP_PATH` or alternatively set `HIP_DEVICE_LIB_PATH="${rocmPackages.rocm-device-libs}/amdgcn/bitcode"` and `HIP_PATH="${rocmPackages.clr}"`.
+//! On NixOS, skip step 4 and add `rocmPackages.clr` to your dev shell to automagically set `HIP_DEVICE_LIB_PATH` and `HIP_PATH` or manually set `HIP_DEVICE_LIB_PATH="${rocmPackages.rocm-device-libs}/amdgcn/bitcode"` and `HIP_PATH="${rocmPackages.clr}"`.
 //!
 //! ## Settings
 //!
@@ -99,7 +99,7 @@
 //!
 //! - If a `gpu` feature is defined in `Cargo.toml`, `--features=gpu` is passed to cargo
 //! - The `crate-type` is set to `cdylib`
-//! - Device libs are added to `link-arg`s and `-Clinker-plugin-lto`
+//! - Device libs are added to `link-arg`s and `-Clinker-plugin-lto` is enabled
 //! - core and alloc are built with `-Zbuild-std=core,alloc`
 //! - In debug mode, `opt-level=2` is set, as no optimizations can lead to crashes or compilation failures in the backend
 //! - In release mode, `panic=immediate-abort` is set for performance, so no panic messages are available
@@ -143,6 +143,8 @@ pub use gpu_kernel_proc_macros::{kernel_lib_impl_dbg, kernel_lib_impl_rel};
 pub use hip_runtime_sys;
 
 /// Items automatically imported for kernels.
+///
+/// These don’t appear in the docs as they are only available in GPU code.
 #[cfg(any(doc, target_arch = "amdgpu", target_arch = "nvptx64"))]
 pub mod prelude {
     #[cfg(target_arch = "amdgpu")]
@@ -152,6 +154,8 @@ pub mod prelude {
 /// Some basic, useful intrinsics for GPU kernels.
 ///
 /// Once there is more support in `core`, this will be removed.
+///
+/// These don’t appear in the docs as they are only available in GPU code.
 #[cfg(any(doc, target_arch = "amdgpu"))]
 pub mod intrinsics {
     #[cfg(target_arch = "amdgpu")]
@@ -166,6 +170,13 @@ pub mod intrinsics {
 /// The `kernel_lib!()` macro declares a crate as a library of GPU kernels.
 ///
 /// It compiles the crate for the GPU and includes the compiled binary on the CPU side.
+///
+/// # Example
+///
+/// ```
+/// // Somewhere at the top-level of your crate
+/// gpu_kernel::kernel_lib!();
+/// ```
 #[macro_export]
 macro_rules! kernel_lib {
     () => {
@@ -189,6 +200,15 @@ macro_rules! kernel_lib {
 /// This struct specifies how many workgroups are launched and how many threads are contained in each of them.
 ///
 /// The total number of threads launched is number of workgroups times threads per workgroup.
+///
+/// # Example
+///
+/// ```
+/// # use gpu_kernel::LaunchConfig;
+/// let launch_config = LaunchConfig::new()
+///     .workgroups([1, 0, 0])
+///     .threads_per_workgroup([1, 0, 0]);
+/// ```
 #[non_exhaustive]
 #[derive(Clone, Default, Eq, Hash, PartialEq)]
 pub struct LaunchConfig {
@@ -210,6 +230,8 @@ pub struct LaunchConfig {
 /// between CPU and GPU.
 /// See the [unified memory management] documentation.
 ///
+/// With the `amd-allocator` crate feature (enabled by default), this is the default allocator.
+///
 /// [unified memory management]: https://rocm.docs.amd.com/projects/HIP/en/latest/how-to/hip_runtime_api/memory_management/unified_memory.html
 #[cfg(all(
     feature = "amd",
@@ -226,6 +248,8 @@ pub struct ManagedMemAlloc;
 static HEAP: ManagedMemAlloc = ManagedMemAlloc;
 
 /// Allocate memory on the GPU, visible to the CPU as well.
+///
+/// [`GpuBox`] is a convenient `Box` using this allocator.
 #[cfg(all(
     feature = "amd",
     not(any(target_arch = "amdgpu", target_arch = "nvptx64"))
@@ -233,6 +257,15 @@ static HEAP: ManagedMemAlloc = ManagedMemAlloc;
 pub struct GpuAlloc;
 
 /// A `Box` allocated on the GPU, also accessible from the CPU.
+///
+/// # Example
+///
+/// ```
+/// # use gpu_kernel::GpuBox;
+/// // This integer is allocated in GPU memory,
+/// // so fast to access on the GPU and slow to access on the CPU.
+/// let gpu_int = GpuBox::new(42);
+/// ```
 #[cfg(all(
     feature = "amd",
     not(any(target_arch = "amdgpu", target_arch = "nvptx64"))
@@ -254,6 +287,9 @@ unsafe impl Sync for Module {}
 /// A loaded, compiled GPU kernel.
 ///
 /// Can be launched on the GPU.
+///
+/// The `#[kernel]` macro adds a `launch` function that takes a [`&LaunchConfig`](`LaunchConfig`)
+/// as first argument and all kernel arguments afterwards.
 #[cfg(not(any(target_arch = "amdgpu", target_arch = "nvptx64")))]
 pub struct Kernel {
     #[cfg(feature = "amd")]

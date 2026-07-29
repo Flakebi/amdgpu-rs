@@ -73,34 +73,46 @@ fn type_with_explicit_lifetimes(
     }
 }
 
-/// Declare a function as GPU kernel.
+/// Declare a function as a GPU kernel.
 ///
 /// The function will be compiled for the GPU and can be launched from the CPU.
 ///
-/// CPU: `&LaunchConfig` argument prepended
+/// On the CPU side a `.launch` function is generated, taking a `&LaunchConfig`
+/// argument as the first argument, followed by all function arguments.
 ///
-/// mutable arguments are forbidden,
-/// references must be to heap allocated memory or otherwise guarantee they are part of unified or managed memory,
-/// (<https://rocm.docs.amd.com/projects/HIP/en/latest/how-to/hip_runtime_api/memory_management/unified_memory.html>, `gpu-kernel` adds a global allocator that uses `hipMallocManaged()`)
+/// Mutable references are generally forbidden as arguments as the same
+/// arguments are passed to many, parallel executions of the function.
 ///
-/// There are two, somewhat different variants to declare a kernel:
+/// References must be to heap allocated memory or otherwise guarantee they are
+/// part of unified or managed memory, (see the [ROCm unified memory docs],
+/// `gpu-kernel` adds a global allocator that uses `hipMallocManaged()`)
+///
+/// # Unsafe/Safe Kernels
+///
+/// There are two, variants to declare a kernel:
 ///
 /// 1. If the kernel is marked `unsafe`, all arguments are passed through as they are defined and it
 ///    is your responsibility to ensure the arguments are ok to pass.
 /// 2. If the kernel is safe (i.e. not marked `unsafe`), the `launch` function on the CPU side
-///    ensures that only valid arguments can be passed. To ensure that, every argument with its type
-///    `<ty>` on the GPU kernel, is translated to `impl SafeKernelArg<Output = <ty>>` in the `launch` function.
+///    ensures that only valid arguments can be passed.
+///    To ensure that, a `#[kernel] fn k(arg: Ty)` gets a generated function on the CPU taking
+///    `fn launch(&self, cfg: &LaunchConfig, arg: impl SafeKernelArg<Output = Ty>)`.
+///
+/// # Safe Kernel Arguments
 ///
 /// The `SafeKernelArg` trait is unsafe to implement, but it comes pre-implemented for a variety of safe types.
+///
 /// Safe types are:
 ///
 /// - All primitive types like signed/unsigned integers
-/// - Pointers, these are safe to pass, but unsafe to dereference
+/// - Pointers (these are safe to pass, but unsafe to dereference)
 /// - Slices can be passed by giving a vector or box reference as argument (`&Vec<T>` → `&[T]` where `T` is safe)
 /// - Strings can be passed by giving a string reference as argument (`&String` → `&str`)
 /// - References to any safe type can be passed by giving a box reference as argument (`&Box<T>` → `T` where `T` is safe)
 /// - If `T` is safe, the same goes for `&Box<[T>]>` → `&[T]`, `&Arc<T>` → `T`, `&GpuBox<T>` and `&GpuBox<[T]>` (see also the documentation for `GpuBox`)
-/// - `ThreadIndexedSlice` can be used to pass a mutable reference to an array where each thread gets access to an element at its thread index (`&mut Vec<T>` → `ThreadIndexedSlice<T>` where `T` is safe)
+/// - `ThreadIndexedSlice` can be used to pass a mutable reference to a list where each thread gets access to an element at its thread index (`&mut Vec<T>` → `ThreadIndexedSlice<T>` where `T` is safe)
+///
+/// [ROCm unified memory docs]: https://rocm.docs.amd.com/projects/HIP/en/latest/how-to/hip_runtime_api/memory_management/unified_memory.html
 #[proc_macro_attribute]
 pub fn kernel(
     _attr: proc_macro::TokenStream,
