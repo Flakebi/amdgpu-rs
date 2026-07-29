@@ -12,7 +12,7 @@
 //! }
 //! ```
 //!
-//! This link to the [ROCm device-libs](https://github.com/ROCm/llvm-project/tree/amd-staging/amd/device-libs) and a pre-compiled helper library.
+//! This links to the [ROCm device-libs](https://github.com/ROCm/llvm-project/tree/amd-staging/amd/device-libs) and a pre-compiled helper library.
 //! The libraries are linked from a ROCm installation.
 //! If libraries are found not found by default, set the environment variable
 //! `HIP_DEVICE_LIB_PATH` to the bitcode files. The path should end with `amdgcn/bitcode`

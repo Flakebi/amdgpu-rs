@@ -18,8 +18,9 @@
 //!
 //! `amdgpu-device-libs` works by linking to the [ROCm device-libs](https://github.com/ROCm/llvm-project/tree/amd-staging/amd/device-libs) and a pre-compiled helper library.
 //! The libraries are linked from a ROCm installation.
-//! To make sure the libraries are found, set the environment variable `ROCM_PATH` or `ROCM_DEVICE_LIB_PATH` (higher priority if it is set).
-//! It looks for `amdgcn/bitcode/*.bc` files in this path.
+//! If libraries are found not found by default, set the environment variable
+//! `HIP_DEVICE_LIB_PATH` to the bitcode files. The path should end with `amdgcn/bitcode`
+//! and contain `.bc` files.
 //!
 //! ## Usage
 //!
