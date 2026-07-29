@@ -18,4 +18,4 @@ hip-runtime-sys = { version = "0.1", optional = true }
 
 # GPU dependencies
 [target.'cfg(target_arch = "amdgpu")'.dependencies]
-amdgpu-device-libs = { version = "0.2", path = "../amdgpu-rs/amdgpu-device-libs", optional = true }
+amdgpu-device-libs = { version = "0.2", path = "../amdgpu-device-libs", optional = true }

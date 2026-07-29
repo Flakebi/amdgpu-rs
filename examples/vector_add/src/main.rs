@@ -19,8 +19,6 @@ fn kernel(a: &[u32], b: &[u32], mut c: ThreadIndexedSlice<'_, u32>) {
 fn main() {
     use gpu_kernel::LaunchConfig;
 
-    // TODO Move to amdgpu-rs
-
     // Create two vectors a and b to add together
     let mut a = Vec::new();
     let mut b = Vec::new();

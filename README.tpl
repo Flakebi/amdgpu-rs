@@ -1,5 +1,4 @@
-# Rust on (AMD) GPUs
-<!-- TODO docs.rs badge -->
+# Rust on (AMD) GPUs [![docs.rs](https://docs.rs/gpu-kernel/badge.svg)](https://docs.rs/gpu-kernel)
 
 {{readme}}
 
@@ -12,6 +11,11 @@ More examples can be found in [`examples`](./examples)
 This repo also contains support libraries for the amdgpu Rust target and more low-level examples using these.
 
 See the [`amdgpu-device-libs`](./amdgpu-device-libs) folder for docs and [`examples-amdgpu-raw`](./examples-amdgpu-raw) for examples.
+
+## Tests
+
+All examples can be run with `nix run .#runExamples`.
+To specify a non-default device, e.g. 1, use `nix run .#runExamples -- -d 1`.
 
 ## License
 
