@@ -19,7 +19,18 @@ macro_rules! safe_kernel_arg_impl {
     };
 }
 
-/// Marker trait for types that are safe to pass to gpu kernels.
+/// Marker trait for types that are safe to pass to GPU kernels.
+///
+/// The `Output` type that is passed to the GPU can be the same as the type
+/// the trait is implemented for or it can be different.
+/// This is useful to e.g. allow an allocated `Vec<T>` to be passed as a `&[T]`
+/// but not allow passing a slice directly as it might not point to memory that
+/// is readable by the GPU.
+///
+/// # Safety
+///
+/// An implementor guarantees that a GPU kernel receiving the output can freely
+/// use it in safe code.
 #[cfg(not(any(target_arch = "amdgpu", target_arch = "nvptx64")))]
 #[diagnostic::on_unimplemented(
     message = "`SafeKernelArg` is not implemented for `{Self}`",
@@ -27,8 +38,12 @@ macro_rules! safe_kernel_arg_impl {
     note = "All kernel arguments must implement `SafeKernelArg` or the kernel must be marked as `unsafe`"
 )]
 pub unsafe trait SafeKernelArg {
+    /// The type that is passed to the GPU.
     type Output;
 
+    /// Convert into the actual GPU argument.
+    ///
+    /// May panic if necessary constraints are violated.
     fn into_kernel_arg(self, launch_config: &LaunchConfig) -> Self::Output;
 }
 
@@ -38,14 +53,18 @@ pub unsafe trait SafeKernelArg {
 /// kernel panics.
 // Needs repr transparent to be passed as a pointer. Structs would be passed by reference.
 #[repr(transparent)]
-pub struct ThreadIndexedVec<'a, T> {
+pub struct ThreadIndexedSlice<'a, T> {
     ptr: *mut T,
     phantom: PhantomData<&'a mut T>,
 }
 
+// SAFETY: These primitive types have the same layout in the CPU and GPU calling convention.
 #[cfg(not(any(target_arch = "amdgpu", target_arch = "nvptx64")))]
-safe_kernel_arg_impl!(u8, i8, u16, i16, u32, i32, u64, i64, f32, f64);
+safe_kernel_arg_impl!(bool, u8, i8, u16, i16, u32, i32, u64, i64, f32, f64);
 
+// SAFETY: A pointer has the same layout in the CPU and GPU calling convention.
+// It migth not point to GPU accessible memory, but that is fine as it is not
+// safely dereferenceable.
 #[cfg(not(any(target_arch = "amdgpu", target_arch = "nvptx64")))]
 unsafe impl<T> SafeKernelArg for *const T {
     type Output = Self;
@@ -55,6 +74,7 @@ unsafe impl<T> SafeKernelArg for *const T {
     }
 }
 
+// SAFETY: See *const T
 #[cfg(not(any(target_arch = "amdgpu", target_arch = "nvptx64")))]
 unsafe impl<T> SafeKernelArg for *mut T {
     type Output = Self;
@@ -64,11 +84,13 @@ unsafe impl<T> SafeKernelArg for *mut T {
     }
 }
 
+// SAFETY: When using the allocator, heap memory is visible to the GPU, so the
+// slice is readable if `T` has the same layout on the GPU.
 #[cfg(all(
     feature = "amd-allocator",
     not(any(target_arch = "amdgpu", target_arch = "nvptx64"))
 ))]
-unsafe impl<'a, T: SafeKernelArg> SafeKernelArg for &'a Vec<T> {
+unsafe impl<'a, T: SafeKernelArg<Output = T>> SafeKernelArg for &'a Vec<T> {
     type Output = &'a [T];
 
     fn into_kernel_arg(self, _: &LaunchConfig) -> Self::Output {
@@ -76,6 +98,7 @@ unsafe impl<'a, T: SafeKernelArg> SafeKernelArg for &'a Vec<T> {
     }
 }
 
+// SAFETY: See Vec<T>
 #[cfg(all(
     feature = "amd-allocator",
     not(any(target_arch = "amdgpu", target_arch = "nvptx64"))
@@ -88,11 +111,12 @@ unsafe impl<'a> SafeKernelArg for &'a String {
     }
 }
 
+// SAFETY: See Vec<T>
 #[cfg(all(
     feature = "amd-allocator",
     not(any(target_arch = "amdgpu", target_arch = "nvptx64"))
 ))]
-unsafe impl<'a, T: SafeKernelArg> SafeKernelArg for &'a Box<T> {
+unsafe impl<'a, T: SafeKernelArg<Output = T>> SafeKernelArg for &'a Box<T> {
     type Output = &'a T;
 
     fn into_kernel_arg(self, _: &LaunchConfig) -> Self::Output {
@@ -100,11 +124,12 @@ unsafe impl<'a, T: SafeKernelArg> SafeKernelArg for &'a Box<T> {
     }
 }
 
+// SAFETY: See Vec<T>
 #[cfg(all(
     feature = "amd-allocator",
     not(any(target_arch = "amdgpu", target_arch = "nvptx64"))
 ))]
-unsafe impl<'a, T: SafeKernelArg> SafeKernelArg for &'a Box<[T]> {
+unsafe impl<'a, T: SafeKernelArg<Output = T>> SafeKernelArg for &'a Box<[T]> {
     type Output = &'a [T];
 
     fn into_kernel_arg(self, _: &LaunchConfig) -> Self::Output {
@@ -112,8 +137,9 @@ unsafe impl<'a, T: SafeKernelArg> SafeKernelArg for &'a Box<[T]> {
     }
 }
 
+// SAFETY: See Vec<T>
 #[cfg(not(any(target_arch = "amdgpu", target_arch = "nvptx64")))]
-unsafe impl<'a, T: SafeKernelArg> SafeKernelArg for &'a GpuBox<T> {
+unsafe impl<'a, T: SafeKernelArg<Output = T>> SafeKernelArg for &'a GpuBox<T> {
     type Output = &'a T;
 
     fn into_kernel_arg(self, _: &LaunchConfig) -> Self::Output {
@@ -121,8 +147,9 @@ unsafe impl<'a, T: SafeKernelArg> SafeKernelArg for &'a GpuBox<T> {
     }
 }
 
+// SAFETY: See Vec<T>
 #[cfg(not(any(target_arch = "amdgpu", target_arch = "nvptx64")))]
-unsafe impl<'a, T: SafeKernelArg> SafeKernelArg for &'a GpuBox<[T]> {
+unsafe impl<'a, T: SafeKernelArg<Output = T>> SafeKernelArg for &'a GpuBox<[T]> {
     type Output = &'a [T];
 
     fn into_kernel_arg(self, _: &LaunchConfig) -> Self::Output {
@@ -130,8 +157,12 @@ unsafe impl<'a, T: SafeKernelArg> SafeKernelArg for &'a GpuBox<[T]> {
     }
 }
 
-#[cfg(not(any(target_arch = "amdgpu", target_arch = "nvptx64")))]
-unsafe impl<'a, T: SafeKernelArg> SafeKernelArg for &'a std::sync::Arc<T> {
+// SAFETY: See Vec<T>
+#[cfg(all(
+    feature = "amd-allocator",
+    not(any(target_arch = "amdgpu", target_arch = "nvptx64"))
+))]
+unsafe impl<'a, T: SafeKernelArg<Output = T>> SafeKernelArg for &'a std::sync::Arc<T> {
     type Output = &'a T;
 
     fn into_kernel_arg(self, _: &LaunchConfig) -> Self::Output {
@@ -139,38 +170,47 @@ unsafe impl<'a, T: SafeKernelArg> SafeKernelArg for &'a std::sync::Arc<T> {
     }
 }
 
-#[cfg(all(
-    feature = "amd-allocator",
-    not(any(target_arch = "amdgpu", target_arch = "nvptx64"))
-))]
-unsafe impl<'a, T: SafeKernelArg> SafeKernelArg for &'a mut Vec<T> {
-    type Output = ThreadIndexedVec<'a, T>;
+/// Implement SafeKernelArg<Output = ThreadIndexedSlice<T>> for a list type
+macro_rules! safe_kernel_arg_list_impl {
+    ($ty:ty: $len:expr; $ptr:expr) => {
+        #[cfg(not(any(target_arch = "amdgpu", target_arch = "nvptx64")))]
+        unsafe impl<'a, T: SafeKernelArg<Output = T>> SafeKernelArg for &'a mut $ty {
+            type Output = ThreadIndexedSlice<'a, T>;
 
-    fn into_kernel_arg(self, launch_config: &LaunchConfig) -> ThreadIndexedVec<'a, T> {
-        // assert that vector is long enough for launched threads
-        let launch_size = launch_config
-            .threads_per_workgroup
-            .unwrap()
-            .iter()
-            .map(|i| *i as usize)
-            .product::<usize>()
-            * launch_config
-                .workgroups
-                .unwrap()
-                .iter()
-                .map(|i| *i as usize)
-                .product::<usize>();
-        assert!(
-            self.len() >= launch_size as usize,
-            "Passed vector is not large enough for the number of launched threads. Expected at least {launch_size} but got {}",
-            self.len()
-        );
-        ThreadIndexedVec {
-            ptr: self.as_mut_ptr(),
-            phantom: PhantomData,
+            fn into_kernel_arg(self, launch_config: &LaunchConfig) -> ThreadIndexedSlice<'a, T> {
+                // assert that vector is long enough for launched threads
+                let launch_size = launch_config
+                    .threads_per_workgroup
+                    .unwrap()
+                    .iter()
+                    .map(|i| *i as usize)
+                    .product::<usize>()
+                    * launch_config
+                        .workgroups
+                        .unwrap()
+                        .iter()
+                        .map(|i| *i as usize)
+                        .product::<usize>();
+                assert!(
+                    $len(self) >= launch_size as usize,
+                    "Passed vector is not large enough for the number of launched threads. Expected at least {launch_size} but got {}",
+                    $len(self)
+                );
+                ThreadIndexedSlice {
+                    ptr: $ptr(self),
+                    phantom: PhantomData,
+                }
+            }
         }
-    }
+    };
 }
+
+// SAFETY: See Vec<T>
+#[cfg(feature = "amd-allocator")]
+safe_kernel_arg_list_impl!(Vec<T>: |v: &Vec<_>| v.len(); |v: &mut Vec<_>| v.as_mut_ptr());
+#[cfg(feature = "amd-allocator")]
+safe_kernel_arg_list_impl!(Box<[T]>: |v: &Box<[_]>| v.len(); |v: &mut Box<[_]>| v.as_mut_ptr());
+safe_kernel_arg_list_impl!(GpuBox<[T]>: |v: &GpuBox<[_]>| v.len(); |v: &mut GpuBox<[_]>| v.as_mut_ptr());
 
 #[cfg(any(target_arch = "amdgpu", target_arch = "nvptx64"))]
 fn thread_id() -> usize {
@@ -187,8 +227,8 @@ fn thread_id() -> usize {
     id
 }
 
-impl<'a, T> ThreadIndexedVec<'a, T> {
-    /// Constructs a `ThreadIndexedVec` from a raw base pointer.
+impl<'a, T> ThreadIndexedSlice<'a, T> {
+    /// Constructs a `ThreadIndexedSlice` from a raw base pointer.
     ///
     /// # Safety
     ///
@@ -201,17 +241,19 @@ impl<'a, T> ThreadIndexedVec<'a, T> {
         }
     }
 
-    /// Returns the base pointer of the wrapped `Vec`.
+    /// Returns the base pointer of the wrapped list.
     pub fn as_mut_base_ptr(&mut self) -> *mut T {
         self.ptr
     }
 
-    #[cfg(any(target_arch = "amdgpu", target_arch = "nvptx64"))]
+    /// Get a reference to the element for the current thread index.
+    #[cfg(any(doc, target_arch = "amdgpu", target_arch = "nvptx64"))]
     pub fn get(&self) -> &T {
         unsafe { &*self.ptr.add(thread_id()) }
     }
 
-    #[cfg(any(target_arch = "amdgpu", target_arch = "nvptx64"))]
+    /// Get a mutable reference to the element for the current thread index.
+    #[cfg(any(doc, target_arch = "amdgpu", target_arch = "nvptx64"))]
     pub fn get_mut(&mut self) -> &mut T {
         unsafe { &mut *self.ptr.add(thread_id()) }
     }

@@ -1,12 +1,12 @@
 #![cfg_attr(feature = "gpu", no_std, feature(abi_gpu_kernel))]
 
-use gpu_kernel::{ThreadIndexedVec, kernel};
+use gpu_kernel::{ThreadIndexedSlice, kernel};
 
 gpu_kernel::kernel_lib!();
 
 /// This kernel adds numbers from two slices and writes the result into a third.
 #[kernel]
-fn kernel(a: &[u32], b: &[u32], mut c: ThreadIndexedVec<'_, u32>) {
+fn kernel(a: &[u32], b: &[u32], mut c: ThreadIndexedSlice<'_, u32>) {
     use gpu_kernel::intrinsics::workitem_id_x;
 
     let id = workitem_id_x() as usize;
@@ -20,7 +20,7 @@ fn main() {
     use gpu_kernel::LaunchConfig;
 
     // TODO Move to amdgpu-rs
-    // TODO Document everything and add readmes
+    // TODO Error message when missing kernel_lib! ?
 
     // Create two vectors a and b to add together
     let mut a = Vec::new();

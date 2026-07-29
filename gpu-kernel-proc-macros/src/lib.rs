@@ -1,3 +1,7 @@
+//! The procedural macros used to implement `gpu-kernel`.
+//!
+//! See the individual macros or the `gpu-kernel` crate for documentation.
+#![deny(missing_docs)]
 extern crate proc_macro;
 
 use std::path::{Path, PathBuf};
@@ -71,10 +75,34 @@ fn type_with_explicit_lifetimes(
     }
 }
 
-// TODO Document more
+/// Declare a function as GPU kernel.
+///
+/// The function will be compiled for the GPU and can be launched from the CPU.
+///
+/// CPU: `&LaunchConfig` argument prepended
+///
 /// mutable arguments are forbidden,
 /// references must be to heap allocated memory or otherwise guarantee they are part of unified or managed memory,
-/// (https://rocm.docs.amd.com/projects/HIP/en/latest/how-to/hip_runtime_api/memory_management/unified_memory.html, `gpu-kernel` adds a global allocator that uses `hipMallocManaged()`)
+/// (<https://rocm.docs.amd.com/projects/HIP/en/latest/how-to/hip_runtime_api/memory_management/unified_memory.html>, `gpu-kernel` adds a global allocator that uses `hipMallocManaged()`)
+///
+/// There are two, somewhat different variants to declare a kernel:
+///
+/// 1. If the kernel is marked `unsafe`, all arguments are passed through as they are defined and it
+///    is your responsibility to ensure the arguments are ok to pass.
+/// 2. If the kernel is safe (i.e. not marked `unsafe`), the `launch` function on the CPU side
+///    ensures that only valid arguments can be passed. To ensure that, every argument with its type
+///    `<ty>` on the GPU kernel, is translated to `impl SafeKernelArg<Output = <ty>>` in the `launch` function.
+///
+/// The `SafeKernelArg` trait is unsafe to implement, but it comes pre-implemented for a variety of safe types.
+/// Safe types are:
+///
+/// - All primitive types like signed/unsigned integers
+/// - Pointers, these are safe to pass, but unsafe to dereference
+/// - Slices can be passed by giving a vector or box reference as argument (`&Vec<T>` → `&[T]` where `T` is safe)
+/// - Strings can be passed by giving a string reference as argument (`&String` → `&str`)
+/// - References to any safe type can be passed by giving a box reference as argument (`&Box<T>` → `T` where `T` is safe)
+/// - If `T` is safe, the same goes for `&Box<[T>]>` → `&[T]`, `&Arc<T>` → `T`, `&GpuBox<T>` and `&GpuBox<[T]>` (see also the documentation for `GpuBox`)
+/// - `ThreadIndexedSlice` can be used to pass a mutable reference to an array where each thread gets access to an element at its thread index (`&mut Vec<T>` → `ThreadIndexedSlice<T>` where `T` is safe)
 #[proc_macro_attribute]
 pub fn kernel(
     _attr: proc_macro::TokenStream,
@@ -310,11 +338,17 @@ pub fn kernel(
     proc_macro::TokenStream::from(output)
 }
 
+/// The `kernel_lib!()` macro, compiling the crate in debug mode.
+///
+/// See `kernel_lib!()` for documentation.
 #[proc_macro]
 pub fn kernel_lib_impl_dbg(tokens: proc_macro::TokenStream) -> proc_macro::TokenStream {
     kernel_lib_impl(tokens, true)
 }
 
+/// The `kernel_lib!()` macro, compiling the crate in release mode.
+///
+/// See `kernel_lib!()` for documentation.
 #[proc_macro]
 pub fn kernel_lib_impl_rel(tokens: proc_macro::TokenStream) -> proc_macro::TokenStream {
     kernel_lib_impl(tokens, false)
@@ -384,7 +418,12 @@ struct NewCargoToml {
 /// - Insert lib.path = main.rs if lib does not exist
 /// - Set lib.crate-type = cdylib
 /// - Fixup path dependencies
-fn create_cargo_toml(manifest_path: &Path, manifest_dir: &Path, orig: &str) -> NewCargoToml {
+fn create_cargo_toml(
+    manifest_path: &Path,
+    manifest_dir: &Path,
+    gpu_toml_dir: &Path,
+    orig: &str,
+) -> NewCargoToml {
     let mut cargo_toml = orig
         .parse::<Table>()
         .unwrap_or_else(|e| panic!("Failed to parse {}: {e}", manifest_path.display()));
@@ -404,14 +443,29 @@ fn create_cargo_toml(manifest_path: &Path, manifest_dir: &Path, orig: &str) -> N
         .as_table_mut()
         .expect("lib needs to be a toml table");
 
+    // Prefix for relative paths from gpu_toml_dir to manifest_dir
+    let rel_prefix = {
+        let manifest = &manifest_dir; // Already canonicialized
+        let gpu = gpu_toml_dir
+            .canonicalize()
+            .expect("Failed to resolve $CARGO_TARGET_DIR");
+        if let Ok(rel) = gpu.strip_prefix(manifest) {
+            let diff = rel.components().count();
+            vec![".."; diff].join("/")
+        } else {
+            // Not a prefix, use an absolute path
+            manifest.display().to_string()
+        }
+    };
+
     // Set or fixup lib path
     match lib_config.entry("path") {
         Entry::Vacant(e) => {
             let path;
             if has_lib {
-                path = "../../src/lib.rs";
+                path = format!("{rel_prefix}/src/lib.rs");
             } else {
-                path = "../../src/main.rs";
+                path = format!("{rel_prefix}/src/main.rs");
             }
             e.insert(path.into());
         }
@@ -419,7 +473,7 @@ fn create_cargo_toml(manifest_path: &Path, manifest_dir: &Path, orig: &str) -> N
             // Fixup relative path
             let path = Path::new(e.get().as_str().expect("lib path must be a toml string"));
             if path.is_relative() {
-                let new = Path::new("../..").join(path).display().to_string();
+                let new = Path::new(&rel_prefix).join(path).display().to_string();
                 e.insert(new.into());
             }
         }
@@ -435,7 +489,7 @@ fn create_cargo_toml(manifest_path: &Path, manifest_dir: &Path, orig: &str) -> N
             if let Some(p) = v.get_mut("path") {
                 let path = Path::new(p.as_str().expect("Dependency path must be a toml string"));
                 if path.is_relative() {
-                    let new = Path::new("../..").join(path).display().to_string();
+                    let new = Path::new(&rel_prefix).join(path).display().to_string();
                     *p = new.into();
                 }
             }
@@ -538,14 +592,14 @@ fn kernel_lib_impl(_: proc_macro::TokenStream, debug: bool) -> proc_macro::Token
     let cargo_toml = fs::read_to_string(&manifest_path)
         .unwrap_or_else(|e| panic!("Failed to read {}: {e}", manifest_path.display()));
 
+    let gpu_toml_dir = target_dir.clone();
+    fs::create_dir_all(&gpu_toml_dir).expect("Failed to create gpu-kernel target dir");
     let NewCargoToml {
         cargo_toml,
         has_gpu_feature,
-    } = create_cargo_toml(&manifest_path, &manifest_dir, &cargo_toml);
+    } = create_cargo_toml(&manifest_path, &manifest_dir, &gpu_toml_dir, &cargo_toml);
 
     // Write new Cargo.toml
-    let gpu_toml_dir = target_dir.clone();
-    fs::create_dir_all(&gpu_toml_dir).expect("Failed to create gpu-kernel target dir");
     let gpu_toml = gpu_toml_dir.join("Cargo.toml");
     fs::write(&gpu_toml, cargo_toml.as_bytes()).expect("Failed to write GPU Cargo.toml");
     // Copy Cargo.lock
@@ -566,14 +620,22 @@ fn kernel_lib_impl(_: proc_macro::TokenStream, debug: bool) -> proc_macro::Token
         &target_dir.display().to_string(),
     ]);
     if has_gpu_feature {
-        cargo.args(&["--features", "gpu"]);
+        cargo.arg("--features=gpu");
     }
     if !debug {
-        cargo.arg("--release");
+        // Compile with panic=immediate-abort,
+        // because GPU code is often quite performance sensitive and just the
+        // existence of panic messages can slow things down considerably.
+        // E.g. the vector_add_fast example gets a speed-up of 6%.
+        cargo.args(&[
+            "--release",
+            "-Zpanic-immediate-abort",
+            "--config=profile.release.panic=\"immediate-abort\"",
+        ]);
     } else {
         // Compile always with optimizations.
         // Compiling without optimizations can lead to crashes or compilation failures.
-        cargo.args(&["--config", "profile.dev.opt-level=2"]);
+        cargo.arg("--config=profile.dev.opt-level=2");
     }
     if !cargoflags.is_empty() {
         for f in cargoflags.split(' ') {

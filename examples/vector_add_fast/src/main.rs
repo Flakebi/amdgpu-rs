@@ -16,11 +16,13 @@ pub fn kernel(a: &[u32], b: &[u32], c: *mut u32) {
     let id = workitem_id_x() as usize + 32 * workgroup_id_x() as usize;
 
     // Add multiple input numbers and store into output
-    let mut sum = 0;
+    let mut sum: u32 = 0;
     for i in 0..100 {
         // This accesses memory in  multiple places to demonstrate a performance difference
         // when the memory is in CPU or GPU memory
-        sum += a[id] + b[id] + a[(id * i) % a.len()] - b[a.len().wrapping_sub(id * i) % a.len()];
+        sum = sum.wrapping_add(a[id].wrapping_add(b[id]).wrapping_add(
+            a[(id * i) % a.len()].wrapping_sub(b[a.len().wrapping_sub(id * i) % a.len()]),
+        ));
     }
     unsafe {
         *c.add(id) = sum;
