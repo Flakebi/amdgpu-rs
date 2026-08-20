@@ -8,6 +8,6 @@ For `amdgpu-device-libs`, see the [separate CHANGELOG.md](/amdgpu-device-libs/CH
 
 ## [Unreleased]
 
-## [0.1.0] - 2026-07-30
+## [0.1.0] - 2026-08-20
 ### ✨ Added
 - First release of `gpu-kernel`
