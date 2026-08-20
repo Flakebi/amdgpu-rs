@@ -3,7 +3,7 @@
 //! Let us start with the code, it takes just a few lines:
 //! ```rust,no_run
 //! // main.rs
-//! // GPU code is no-std
+//! // GPU code is no-std and requires the nightly gpu_kernel ABI
 //! #![cfg_attr(feature = "gpu", no_std, feature(abi_gpu_kernel))]
 //!
 //! // Macro to compile and include the GPU code
@@ -67,6 +67,8 @@
 //!
 //! Currently, AMD GPUs are supported.
 //! Contributions for other Rust GPU targets are welcome, adding support to `gpu-kernel` should be relatively straightforward.
+//!
+//! Nightly Rust is currently required for the gpu_kernel ABI and GPU intrinsics.
 //!
 //! 1. Install ROCm. On Ubuntu 26.04, this is a simple `apt install rocm-dev`
 //! 1. Add `rust-src` to rustup to support build-std: `rustup component add rust-src`
