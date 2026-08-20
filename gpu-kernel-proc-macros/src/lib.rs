@@ -89,7 +89,7 @@ fn type_with_explicit_lifetimes(
 ///
 /// # Unsafe/Safe Kernels
 ///
-/// There are two, variants to declare a kernel:
+/// There are two variants to declare a kernel:
 ///
 /// 1. If the kernel is marked `unsafe`, all arguments are passed through as they are defined and it
 ///    is your responsibility to ensure the arguments are ok to pass.
