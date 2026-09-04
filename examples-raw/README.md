@@ -3,7 +3,6 @@
 Examples for using the Rust amdgpu target and `amdgpu-device-libs`.
 
 The examples use the [`hip-runtime-sys`](https://github.com/cjordan/hip-sys) crate on the CPU side to launch kernels.
-This expects `HIP_PATH` to point to an installation of ROCm.
 
 To compile examples, set the concrete hardware architecture with `CARGO_BUILD_RUSTFLAGS='-Ctarget-cpu=gfx900'` (replace `gfx900` with the name printed by `rocminfo` on the used system).
 

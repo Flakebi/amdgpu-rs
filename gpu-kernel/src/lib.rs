@@ -80,9 +80,8 @@
 //!    # If rocminfo shows xnack- for your GPU, add "-Ctarget-feature=-xnack-support" as well
 //!    ```
 //!    Alternatively, specify the flags through an environment variable: `CARGO_TARGET_AMDGCN_AMD_AMDHSA_RUSTFLAGS=-Ctarget-cpu=gfx<your version>`
-//! 1. Set `HIP_PATH=/usr` for `hip-runtime-sys` to find the hip headers
 //!
-//! On NixOS, skip step 4 and add `rocmPackages.clr` to your dev shell to automagically set `HIP_DEVICE_LIB_PATH` and `HIP_PATH` or manually set `HIP_DEVICE_LIB_PATH="${rocmPackages.rocm-device-libs}/amdgcn/bitcode"` and `HIP_PATH="${rocmPackages.clr}"`.
+//! On NixOS, add `rocmPackages.clr` to your dev shell to automagically set `HIP_PATH` or manually set `HIP_DEVICE_LIB_PATH="${rocmPackages.rocm-device-libs}/amdgcn/bitcode"` and `HIP_PATH="${rocmPackages.clr}"`.
 //!
 //! ## Settings
 //!
@@ -92,7 +91,7 @@
 //!
 //! | Env variable                               | Default                                         | Example               | Description                                                              |
 //! |--------------------------------------------|-------------------------------------------------|-----------------------|--------------------------------------------------------------------------|
-//! | `HIP_PATH`                                 | `/opt/rocm/hip`                                 | `/usr`                | Path to the hip installation to find headers                             |
+//! | `HIP_PATH`                                 | `$(hipconfig -p)`                               | `/opt/rocm/hip`       | Path to the hip installation to find headers                             |
 //! | `HIP_DEVICE_LIB_PATH`                      | `$(hipconfig -l)/../lib/clang/*/amdgcn/bitcode` |                       | Path to device libs, ends with `amdgcn/bitcode` and contains `.bc` files |
 //! | `CARGO_TARGET_AMDGCN_AMD_AMDHSA_RUSTFLAGS` | empty                                           | `-Ctarget-cpu=gfx900` | RUSTFLAGS used to compile amdgpu GPU code                                |
 //! | `CARGO_TARGET_AMDGCN_AMD_AMDHSA_FLAGS`     | empty                                           | `-v`                  | Cargo flags used to compile amdgpu GPU code                              |

@@ -19,4 +19,4 @@ COPY examples/hello_world /build/examples/hello_world
 WORKDIR /build/examples/hello_world
 # Build from repo root with: podman build -t gpu-kernel -f examples/hello_world/Dockerfile .
 # Then run in: podman run -it --device /dev/kfd --device /dev/dri --net=host --security-opt=no-new-privileges --cap-drop=ALL localhost/gpu-kernel:latest
-# CARGO_TARGET_AMDGCN_AMD_AMDHSA_RUSTFLAGS="-Ctarget-cpu=gfx<your version>" HIP_PATH=/usr cargo run
+# CARGO_TARGET_AMDGCN_AMD_AMDHSA_RUSTFLAGS="-Ctarget-cpu=gfx<your version>" cargo run
