@@ -97,7 +97,7 @@
 //! ```
 #![deny(missing_docs)]
 #![allow(internal_features)]
-#![feature(core_intrinsics, gpu_intrinsics, stdarch_amdgpu)]
+#![feature(abort_immediate, core_intrinsics, gpu_intrinsics, stdarch_amdgpu)]
 #![no_std]
 
 /// Re-exported for use in print macros
@@ -307,7 +307,7 @@ fn panic(panic_info: &core::panic::PanicInfo) -> ! {
         );
     }
 
-    core::intrinsics::abort();
+    core::process::abort_immediate();
 }
 
 /// The memory allocator of `device-libs`.

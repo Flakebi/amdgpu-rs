@@ -1,12 +1,12 @@
 #![allow(internal_features)]
-#![feature(abi_gpu_kernel, core_intrinsics, stdarch_amdgpu)]
+#![feature(abi_gpu_kernel, abort_immediate, stdarch_amdgpu)]
 #![no_std]
 
 use core::arch::amdgpu;
 
 #[panic_handler]
 fn panic(_: &core::panic::PanicInfo) -> ! {
-    core::intrinsics::abort();
+    core::process::abort_immediate();
 }
 
 #[allow(clippy::missing_safety_doc)]

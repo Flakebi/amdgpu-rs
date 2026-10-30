@@ -106,11 +106,6 @@
 //! - In release mode, `panic=immediate-abort` is set for performance, so no panic messages are available
 #![deny(missing_docs)]
 #![cfg_attr(any(target_arch = "amdgpu", target_arch = "nvptx64"), no_std)]
-// Allocators will potentially be stabilized before all the GPU necessary stuff.
-#![cfg_attr(
-    not(any(target_arch = "amdgpu", target_arch = "nvptx64")),
-    feature(allocator_api)
-)]
 
 #[cfg(all(
     feature = "amd",
