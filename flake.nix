@@ -145,6 +145,7 @@
           in
           pkgs.writeShellScriptBin "runExamples" ''
             set -euxo pipefail
+            export LD_LIBRARY_PATH=${pkgs.rocmPackages.clr}/lib
             ${default-cpu} ${packages."examples-raw/vector_copy"}/lib/vector_copy.elf "$@"
             ${default-cpu} ${packages."examples-raw/println"}/lib/println.elf "$@"
             ${hostcall-cpu} ${packages."examples-raw/hostcall-gpu"}/lib/hostcall_gpu.elf "$@"
