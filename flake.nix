@@ -60,6 +60,10 @@
             strictDeps = true;
             doCheck = ty == cpuTy;
 
+            buildInputs = with pkgs; [
+              rocmPackages.clr
+            ];
+
             cargoVendorDir = craneLib.vendorMultipleCargoDeps {
               inherit (craneLib.findCargoFiles src) cargoConfigs;
               cargoLockList = [
@@ -69,9 +73,6 @@
               ];
             };
 
-            # TODO Remove
-            ROCM_PATH = "${pkgs.rocmPackages.clr}";
-            ROCM_DEVICE_LIB_PATH = "${pkgs.rocmPackages.rocm-device-libs}";
             CARGO_BUILD_RUSTFLAGS = "--deny warnings";
           }
           // (
@@ -180,7 +181,7 @@
           };
 
           nix-format = pkgs.runCommand "check-format" { } ''
-            ${lib.getExe pkgs.nixfmt-rfc-style} --check ${self}
+            ${lib.getExe pkgs.nixfmt} --check ${self}
             mkdir -p $out
           '';
 

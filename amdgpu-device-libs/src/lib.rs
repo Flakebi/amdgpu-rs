@@ -307,7 +307,7 @@ fn panic(panic_info: &core::panic::PanicInfo) -> ! {
         );
     }
 
-    core::process::abort_immediate();
+    core::process::crash()
 }
 
 /// The memory allocator of `device-libs`.

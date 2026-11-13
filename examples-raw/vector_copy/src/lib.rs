@@ -6,7 +6,7 @@ use core::arch::amdgpu;
 
 #[panic_handler]
 fn panic(_: &core::panic::PanicInfo) -> ! {
-    core::process::abort_immediate();
+    core::process::crash()
 }
 
 #[allow(clippy::missing_safety_doc)]
